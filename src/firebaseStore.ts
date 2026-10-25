@@ -1,0 +1,63 @@
+import { initializeApp } from "firebase/app";
+import {
+  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, setDoc,
+  onSnapshot, query, orderBy, limit,
+} from "firebase/firestore";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
+import type { Store, Order } from "./store";
+
+export function firebaseStore(config: Record<string, string>): Store {
+  const app = initializeApp(config);
+  const db = getFirestore(app);
+  const auth = getAuth(app);
+  const orders = collection(db, "orders");
+
+  return {
+    mode: "live",
+    onOrders(cb) {
+      return onSnapshot(
+        query(orders, orderBy("createdAt", "desc"), limit(300)),
+        (snap) => cb(snap.docs.map((d) => ({ ...(d.data() as Order), id: d.id }))),
+        () => {}
+      );
+    },
+    onOrder(id, cb) {
+      return onSnapshot(
+        doc(orders, id),
+        (d) => cb(d.exists() ? ({ ...(d.data() as Order), id: d.id }) : null),
+        () => {}
+      );
+    },
+    async addOrder(o) {
+      const ref = await addDoc(orders, o);
+      return ref.id;
+    },
+    async setStatus(id, s) {
+      await updateDoc(doc(orders, id), { status: s });
+    },
+    async removeOrder(id) {
+      await deleteDoc(doc(orders, id));
+    },
+    onKitchen(cb) {
+      return onSnapshot(
+        doc(db, "kitchen", "state"),
+        (d) => cb({ soldOut: (d.exists() && (d.data().soldOut as string[])) || [] }),
+        () => {}
+      );
+    },
+    async setSoldOut(ids) {
+      await setDoc(doc(db, "kitchen", "state"), { soldOut: ids });
+    },
+    adminAuth: {
+      async signIn(email, pw) {
+        await signInWithEmailAndPassword(auth, email.trim(), pw);
+      },
+      async signOut() {
+        await signOut(auth);
+      },
+      onUser(cb) {
+        return onAuthStateChanged(auth, (u) => cb(!!u));
+      },
+    },
+  };
+}
