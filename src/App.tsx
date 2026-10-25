@@ -439,6 +439,7 @@ function AdminLogin({ back, ok, onSay, store }: { back: () => void; ok: () => vo
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(false);
   const [shake, setShake] = useState(0);
   const real = !!store?.adminAuth;
   const fail = (l: string) => {
@@ -465,7 +466,8 @@ function AdminLogin({ back, ok, onSay, store }: { back: () => void; ok: () => vo
       }
       return;
     }
-    if (pw === RESTAURANT.adminPassword) {
+    const norm = (x: string) => x.replace(/\s+/g, "").toLowerCase();
+    if (norm(pw) === norm(RESTAURANT.adminPassword)) {
       session.set("admin", true);
       ok();
     } else fail(pick(LINES.wrongPass));
@@ -483,7 +485,10 @@ function AdminLogin({ back, ok, onSay, store }: { back: () => void; ok: () => vo
           </>
         )}
         <label htmlFor="f-pw">Password</label>
-        <input id="f-pw" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" placeholder="••••••••" />
+        <div className="pw-row">
+          <input id="f-pw" type={show ? "text" : "password"} value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="••••••••" />
+          <button type="button" className="ghost small" onClick={() => setShow((v) => !v)} aria-pressed={show}>{show ? "Hide" : "Show"}</button>
+        </div>
         {err && <p className="err" role="alert">{err}</p>}
         <button className="cta boss" type="submit" id="btn-login" disabled={busy}>{busy ? "Checking…" : "Enter the kitchen"}</button>
       </form>

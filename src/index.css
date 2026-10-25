@@ -442,3 +442,6 @@ input:not([type="checkbox"]) {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.pw-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.pw-row input { min-width: 0; }
