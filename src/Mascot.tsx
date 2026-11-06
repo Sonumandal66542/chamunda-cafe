@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 export type Mood = "happy" | "shock" | "wink" | "love" | "sad";
 
 // wobbly hand-rolled circle, so it looks like real dough
-function wobble(cx: number, cy: number, r: number, seed: number, amp: number) {
+export function wobble(cx: number, cy: number, r: number, seed: number, amp: number) {
   const pts: string[] = [];
   const n = 28;
   for (let i = 0; i < n; i++) {

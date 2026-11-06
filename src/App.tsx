@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mascot, Bubble, type Mood } from "./Mascot";
+import { FoodPic } from "./FoodArt";
 import { RESTAURANT, MENU, CATEGORIES, LINES, STATUS, BREAKING, pick, type Item, type StatusId } from "./data";
 import { connectStore, session, type Store, type Order } from "./store";
 
@@ -246,6 +247,21 @@ function MenuScreen({
       return n;
     });
 
+  const act = (it: Item, idp = "") => {
+    const q = cart[it.id] || 0;
+    if (soldOut.includes(it.id)) return <span className="soldout">Khatam!<small>sold out</small></span>;
+    if (q)
+      return (
+        <div className="qty">
+          <button onClick={() => dec(it.id)} aria-label={`Remove one ${it.name}`} type="button">−</button>
+          <b>{q}</b>
+          <button onClick={(e) => add(it, e)} aria-label={`Add one more ${it.name}`} type="button">+</button>
+        </div>
+      );
+    return <button className="add" onClick={(e) => add(it, e)} type="button" id={`add${idp}-${it.id}`}>ADD</button>;
+  };
+  const specials = MENU.filter((m) => m.special);
+
   const jump = (id: string) => {
     setCat(id);
     secRefs.current[id]?.scrollIntoView({ behavior: reduced() ? "auto" : "smooth", block: "start" });
@@ -288,39 +304,47 @@ function MenuScreen({
         ))}
       </nav>
 
+      {specials.length > 0 && (
+        <section className="specials" aria-label="Today's specials">
+          <h3>Today's specials <span>Mummy approved</span></h3>
+          <div className="spec-row">
+            {specials.map((it) => (
+              <article key={it.id} className={`spec ${soldOut.includes(it.id) ? "out" : ""}`}>
+                <FoodPic item={it} className="big" />
+                <h4>{it.name}</h4>
+                <div className="spec-foot">
+                  <span className="price">{rs(it.price)}</span>
+                  {act(it, "-sp")}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       <div className="menu-card">
         {CATEGORIES.map((c) => (
           <section key={c.id} ref={(el) => { secRefs.current[c.id] = el; }} className="menu-sec" id={`sec-${c.id}`}>
             <h3>{c.label}</h3>
             {MENU.filter((m) => m.cat === c.id).map((it) => {
               const out = soldOut.includes(it.id);
-              const q = cart[it.id] || 0;
               return (
                 <article key={it.id} className={`dish ${out ? "out" : ""} ${it.special ? "special" : ""}`}>
+                  <FoodPic item={it} />
                   <div className="dish-main">
                     <div className="dish-head">
                       {it.veg !== undefined && <span className={`vegdot ${it.veg ? "veg" : "nonveg"}`} title={it.veg ? "Veg" : "Non-veg"} />}
                       <h4>{it.name}</h4>
-                      {it.special && <span className="stamp">MUMMY<br />APPROVED</span>}
                     </div>
+                    {it.special && <span className="stamp">MUMMY APPROVED</span>}
                     <p>{it.desc}</p>
-                    <div className="dish-meta">
-                      <span className="price">{rs(it.price)}</span>
-                      <Spice n={it.spice} />
-                    </div>
-                  </div>
-                  <div className="dish-act">
-                    {out ? (
-                      <span className="soldout">Khatam!<small>sold out</small></span>
-                    ) : q ? (
-                      <div className="qty">
-                        <button onClick={() => dec(it.id)} aria-label={`Remove one ${it.name}`} type="button">−</button>
-                        <b>{q}</b>
-                        <button onClick={(e) => add(it, e)} aria-label={`Add one more ${it.name}`} type="button">+</button>
+                    <div className="dish-foot">
+                      <div className="dish-meta">
+                        <span className="price">{rs(it.price)}</span>
+                        <Spice n={it.spice} />
                       </div>
-                    ) : (
-                      <button className="add" onClick={(e) => add(it, e)} type="button" id={`add-${it.id}`}>ADD</button>
-                    )}
+                      <div className="dish-act">{act(it)}</div>
+                    </div>
                   </div>
                 </article>
               );
@@ -352,6 +376,7 @@ function MenuScreen({
               <ul className="plate-list">
                 {lines.map((l) => (
                   <li key={l.item.id}>
+                    <FoodPic item={l.item} className="tiny" />
                     <span className="pl-name">{l.item.name}</span>
                     <div className="qty small">
                       <button onClick={() => dec(l.item.id)} aria-label={`Remove one ${l.item.name}`} type="button">−</button>

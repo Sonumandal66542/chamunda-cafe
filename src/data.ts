@@ -20,6 +20,10 @@ export type Item = {
   special?: boolean;
   spice?: 0 | 1 | 2 | 3;
   veg?: boolean;
+  // Real photo instead of the drawing. Put the photo in src/photos/, then at the top of this file:
+  //   import alooPhoto from "./photos/aloo.jpg";
+  // and on the item: photo: alooPhoto,
+  photo?: string;
 };
 
 export const CATEGORIES = [
