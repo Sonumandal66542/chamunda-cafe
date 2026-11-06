@@ -24,6 +24,7 @@ export type Item = {
   //   import alooPhoto from "./photos/aloo.jpg";
   // and on the item: photo: alooPhoto,
   photo?: string;
+  order?: number; // position on the menu, set by the admin editor
 };
 
 export const CATEGORIES = [

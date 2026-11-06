@@ -1,4 +1,4 @@
-import type { StatusId } from "./data";
+import type { StatusId, Item } from "./data";
 import { firebaseConfig } from "./firebase-config";
 
 export type OrderLine = { id: string; name: string; qty: number; price: number };
@@ -15,6 +15,14 @@ export type Order = {
   createdAt: number;
 };
 export type Kitchen = { soldOut: string[] };
+export type Cat = { id: string; label: string };
+// seeded=false means the admin hasn't edited the menu yet: the built-in menu in data.ts is shown
+export type MenuMeta = { seeded: boolean; cats: Cat[] };
+
+// databases refuse `undefined` values: drop them before saving
+export function clean<T extends object>(o: T): T {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+}
 
 export type Store = {
   mode: "live" | "local";
@@ -25,6 +33,11 @@ export type Store = {
   removeOrder(id: string): Promise<void>;
   onKitchen(cb: (k: Kitchen) => void): () => void;
   setSoldOut(ids: string[]): Promise<void>;
+  onMenu(cb: (items: Item[]) => void): () => void;
+  onMenuMeta(cb: (m: MenuMeta | null) => void): () => void;
+  saveItem(it: Item): Promise<void>;
+  deleteItem(id: string): Promise<void>;
+  setMenuMeta(m: MenuMeta): Promise<void>;
   // present only when a real login system (Firebase) guards the admin screen
   adminAuth?: {
     signIn(email: string, pw: string): Promise<void>;
@@ -74,6 +87,30 @@ function liveStore(db: any): Store {
     async setSoldOut(ids) {
       await db.doc("kitchen/state").set({ soldOut: ids });
     },
+    onMenu(cb) {
+      return db.collection("menu").onSnapshot(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (snap: any) => cb(snap.docs.map((d: any) => ({ ...(d.data() as Item), id: d.id }))),
+        () => {}
+      );
+    },
+    onMenuMeta(cb) {
+      return db.doc("kitchen/menuMeta").onSnapshot(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (d: any) => cb(d.exists ? (d.data() as MenuMeta) : null),
+        () => {}
+      );
+    },
+    async saveItem(it) {
+      const { id, ...rest } = it;
+      await db.collection("menu").doc(id).set(clean(rest));
+    },
+    async deleteItem(id) {
+      await db.collection("menu").doc(id).delete();
+    },
+    async setMenuMeta(m) {
+      await db.doc("kitchen/menuMeta").set(m);
+    },
   };
 }
 
@@ -99,6 +136,14 @@ function localStore(): Store {
   let kitchen: Kitchen = safeGet<Kitchen>("pp-kitchen", { soldOut: [] });
   const oSubs = new Set<(o: Order[]) => void>();
   const kSubs = new Set<(k: Kitchen) => void>();
+  let menu: Item[] = safeGet<Item[]>("pp-menu", []);
+  let meta: MenuMeta | null = safeGet<MenuMeta | null>("pp-menumeta", null);
+  const mSubs = new Set<(m: Item[]) => void>();
+  const metaSubs = new Set<(m: MenuMeta | null) => void>();
+  const emitM = () => {
+    safeSet("pp-menu", menu);
+    mSubs.forEach((f) => f(menu));
+  };
   const emitO = () => {
     safeSet("pp-orders", orders);
     const sorted = [...orders].sort((a, b) => b.createdAt - a.createdAt);
@@ -153,6 +198,29 @@ function localStore(): Store {
     async setSoldOut(ids) {
       kitchen = { soldOut: ids };
       emitK();
+    },
+    onMenu(cb) {
+      mSubs.add(cb);
+      cb(menu);
+      return () => mSubs.delete(cb);
+    },
+    onMenuMeta(cb) {
+      metaSubs.add(cb);
+      cb(meta);
+      return () => metaSubs.delete(cb);
+    },
+    async saveItem(it) {
+      menu = [...menu.filter((m) => m.id !== it.id), clean(it)];
+      emitM();
+    },
+    async deleteItem(id) {
+      menu = menu.filter((m) => m.id !== id);
+      emitM();
+    },
+    async setMenuMeta(m) {
+      meta = m;
+      safeSet("pp-menumeta", meta);
+      metaSubs.forEach((f) => f(meta));
     },
   };
 }

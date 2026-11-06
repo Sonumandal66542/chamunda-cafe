@@ -4,7 +4,8 @@ import {
   onSnapshot, query, orderBy, limit,
 } from "firebase/firestore";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import type { Store, Order } from "./store";
+import { clean, type Store, type Order, type MenuMeta } from "./store";
+import type { Item } from "./data";
 
 export function firebaseStore(config: Record<string, string>): Store {
   const app = initializeApp(config);
@@ -47,6 +48,30 @@ export function firebaseStore(config: Record<string, string>): Store {
     },
     async setSoldOut(ids) {
       await setDoc(doc(db, "kitchen", "state"), { soldOut: ids });
+    },
+    onMenu(cb) {
+      return onSnapshot(
+        collection(db, "menu"),
+        (snap) => cb(snap.docs.map((d) => ({ ...(d.data() as Item), id: d.id }))),
+        () => {}
+      );
+    },
+    onMenuMeta(cb) {
+      return onSnapshot(
+        doc(db, "kitchen", "menuMeta"),
+        (d) => cb(d.exists() ? (d.data() as MenuMeta) : null),
+        () => {}
+      );
+    },
+    async saveItem(it) {
+      const { id, ...rest } = it;
+      await setDoc(doc(db, "menu", id), clean(rest));
+    },
+    async deleteItem(id) {
+      await deleteDoc(doc(db, "menu", id));
+    },
+    async setMenuMeta(m) {
+      await setDoc(doc(db, "kitchen", "menuMeta"), m);
     },
     adminAuth: {
       async signIn(email, pw) {

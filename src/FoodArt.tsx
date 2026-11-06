@@ -272,6 +272,21 @@ function SoftDrinks() {
   );
 }
 
+/* ---------- covered dish, for sections without their own drawing ---------- */
+function Cloche() {
+  return (
+    <>
+      <Plate />
+      <path d="M18 62 Q18 30 50 30 Q82 30 82 62 Z" fill="#d9dde3" stroke={INK} strokeWidth={SW} strokeLinejoin="round" />
+      <path d="M28 52 Q30 38 44 35" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" opacity="0.8" />
+      <rect x="14" y="60" width="72" height="6" rx="3" fill="#bfc5cd" stroke={INK} strokeWidth={SW} />
+      <circle cx="50" cy="27" r="5" fill="#bfc5cd" stroke={INK} strokeWidth={SW} />
+      <path d="M50 80 C42 74 44 68 50 72 C56 68 58 74 50 80Z" fill="var(--chilli)" stroke={INK} strokeWidth="1.8" />
+      <Steam xs={[30, 70]} y={30} />
+    </>
+  );
+}
+
 const ART: Record<string, () => React.ReactElement> = {
   aloo: () => <Paratha filling="#f2c14e" side="achar" />,
   "aloo-cheese": () => <Paratha filling="#f2c14e" cheese side="dahi" />,
@@ -297,7 +312,7 @@ const FALLBACK: Record<string, () => React.ReactElement> = {
 };
 
 export function FoodPic({ item, className = "" }: { item: Item; className?: string }) {
-  const draw = ART[item.id] || FALLBACK[item.cat] || FALLBACK.paratha;
+  const draw = ART[item.id] || FALLBACK[item.cat] || Cloche;
   return (
     <div className={`food-pic cat-${item.cat} ${className}`}>
       {item.photo ? (

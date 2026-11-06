@@ -498,3 +498,43 @@ input:not([type="checkbox"]) {
 .spec .soldout { font-size: 13px; }
 
 @media (max-width: 360px) { .dish { grid-template-columns: 76px 1fr; } }
+
+/* ---------- admin menu editor ---------- */
+.stock .cta { margin-top: 4px; }
+.stock h4 small { font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-left: 6px; }
+.edit-row { grid-template-columns: 44px 1fr auto auto; gap: 8px; padding: 6px 8px; cursor: default; }
+.edit-row .food-pic.tiny { width: 44px; }
+.edit-row .sw { display: grid; justify-items: center; gap: 1px; cursor: pointer; }
+.edit-row .sw em { font-size: 10px; text-align: center; }
+.edit-row .ghost.small { padding: 5px 10px; }
+.toast {
+  margin: 0; padding: 8px 12px; background: var(--chutney); color: #fff; font-weight: 700;
+  border: 2px solid var(--ink); border-radius: 10px; animation: pop 0.25s;
+}
+textarea, select {
+  font: inherit; font-size: 16px; width: 100%; color: var(--ink); background: #fff;
+  border: 3px solid var(--ink); border-radius: 10px; padding: 10px 12px;
+}
+textarea { resize: vertical; min-height: 64px; line-height: 1.35; }
+select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 50%, calc(100% - 14px) 50%; background-size: 6px 6px; background-repeat: no-repeat; padding-right: 36px; }
+#f-fnewcat { margin-top: 6px; }
+.food-form { display: grid; gap: 4px; }
+.food-form .cta { margin-top: 10px; }
+.photo-pick { display: grid; grid-template-columns: 112px 1fr; gap: 12px; align-items: center; margin-bottom: 4px; }
+.photo-pick .food-pic { transform: rotate(-2deg); }
+.photo-btns { display: grid; gap: 6px; justify-items: start; min-width: 0; }
+.photo-btns .ghost.small { margin: 0; }
+.photo-up { display: inline-block; cursor: pointer; background: var(--butter); text-transform: none; letter-spacing: 0; font-family: var(--font-body); font-size: 14px; }
+.sheet label.photo-up { margin-top: 0; }
+.seg-tight { box-shadow: var(--shadow-sm); }
+.seg-tight button { padding: 8px 6px; }
+.chips.wrap { flex-wrap: wrap; overflow: visible; }
+.special-row { grid-template-columns: 1fr auto; margin-top: 10px; text-transform: none; letter-spacing: 0; font-family: var(--font-body); font-size: 15px; }
+.sheet .special-row { margin-top: 12px; }
+.food-form .ghost { margin-top: 6px; }
+.sheet label.special-row, .sheet label.photo-up {
+  font-family: var(--font-body); text-transform: none; letter-spacing: 0; font-size: 15px; font-weight: 700;
+}
+.sheet label.special-row { display: grid; }
+.sheet label.photo-up { display: inline-block; font-size: 14px; }

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mascot, Bubble, type Mood } from "./Mascot";
 import { FoodPic } from "./FoodArt";
+import { AdminMenu } from "./AdminMenu";
 import { RESTAURANT, MENU, CATEGORIES, LINES, STATUS, BREAKING, pick, type Item, type StatusId } from "./data";
-import { connectStore, session, type Store, type Order } from "./store";
+import { connectStore, session, type Store, type Order, type Cat, type MenuMeta } from "./store";
 
 type Screen = "home" | "who" | "menu" | "status" | "adminLogin" | "admin";
 type Diner = { kind: "guest" | "customer"; name: string; phone: string; table: number };
@@ -207,17 +208,24 @@ function WhoAreYou({ onDone, back, setSay }: { onDone: (d: Diner) => void; back:
 }
 
 function MenuScreen({
-  diner, store, soldOut, onOrdered, onSay, addFx,
+  diner, store, soldOut, onOrdered, onSay, addFx, items, cats,
 }: {
   diner: Diner;
   store: Store;
   soldOut: string[];
+  items: Item[];
+  cats: Cat[];
   onOrdered: (id: string) => void;
   onSay: (s: string, m?: Mood) => void;
   addFx: (x: number, y: number) => void;
 }) {
   const [cart, setCart] = useState<Record<string, number>>(() => session.get("cart", {}));
-  const [cat, setCat] = useState(CATEGORIES[0].id);
+  // only sections that have food; food whose section was removed goes under "Other"
+  const known = new Set(cats.map((c) => c.id));
+  const shown: Cat[] = cats.filter((c) => items.some((m) => m.cat === c.id));
+  if (items.some((m) => !known.has(m.cat))) shown.push({ id: "__other", label: "Other" });
+  const inCat = (id: string) => items.filter((m) => (id === "__other" ? !known.has(m.cat) : m.cat === id));
+  const [cat, setCat] = useState(shown[0]?.id || "");
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
@@ -230,7 +238,7 @@ function MenuScreen({
   const count = Object.values(cart).reduce((a, b) => a + b, 0);
   const lines = Object.entries(cart)
     .filter(([, q]) => q > 0)
-    .map(([id, qty]) => ({ item: MENU.find((m) => m.id === id)!, qty }))
+    .map(([id, qty]) => ({ item: items.find((m) => m.id === id)!, qty }))
     .filter((l) => l.item);
   const total = lines.reduce((s, l) => s + l.item.price * l.qty, 0);
 
@@ -260,7 +268,7 @@ function MenuScreen({
       );
     return <button className="add" onClick={(e) => add(it, e)} type="button" id={`add${idp}-${it.id}`}>ADD</button>;
   };
-  const specials = MENU.filter((m) => m.special);
+  const specials = items.filter((m) => m.special);
 
   const jump = (id: string) => {
     setCat(id);
@@ -297,7 +305,7 @@ function MenuScreen({
   return (
     <main className="menu">
       <nav className="cats" aria-label="Menu sections">
-        {CATEGORIES.map((c) => (
+        {shown.map((c) => (
           <button key={c.id} className={cat === c.id ? "on" : ""} onClick={() => jump(c.id)} type="button">
             {c.label}
           </button>
@@ -323,10 +331,11 @@ function MenuScreen({
       )}
 
       <div className="menu-card">
-        {CATEGORIES.map((c) => (
+        {shown.length === 0 && <p className="menu-end">The menu is empty right now. Ask the staff, they'll sort you out.</p>}
+        {shown.map((c) => (
           <section key={c.id} ref={(el) => { secRefs.current[c.id] = el; }} className="menu-sec" id={`sec-${c.id}`}>
             <h3>{c.label}</h3>
-            {MENU.filter((m) => m.cat === c.id).map((it) => {
+            {inCat(c.id).map((it) => {
               const out = soldOut.includes(it.id);
               return (
                 <article key={it.id} className={`dish ${out ? "out" : ""} ${it.special ? "special" : ""}`}>
@@ -521,7 +530,17 @@ function AdminLogin({ back, ok, onSay, store }: { back: () => void; ok: () => vo
   );
 }
 
-function Admin({ store, soldOut, logout }: { store: Store; soldOut: string[]; logout: () => void }) {
+function Admin({
+  store, soldOut, logout, items, cats, onSave, onDelete,
+}: {
+  store: Store;
+  soldOut: string[];
+  logout: () => void;
+  items: Item[];
+  cats: Cat[];
+  onSave: (it: Item, newCat?: Cat) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [tab, setTab] = useState<"orders" | "tables" | "menu">("orders");
   const [filter, setFilter] = useState<StatusId | "active" | "all">("active");
@@ -614,7 +633,7 @@ function Admin({ store, soldOut, logout }: { store: Store; soldOut: string[]; lo
       <div className="seg seg-3" role="tablist">
         {(["orders", "tables", "menu"] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)} type="button">
-            {t === "orders" ? "Orders" : t === "tables" ? "Tables" : "Menu stock"}
+            {t === "orders" ? "Orders" : t === "tables" ? "Tables" : "Menu"}
           </button>
         ))}
       </div>
@@ -699,24 +718,7 @@ function Admin({ store, soldOut, logout }: { store: Store; soldOut: string[]; lo
       )}
 
       {tab === "menu" && (
-        <div className="stock">
-          <p className="fine">Ran out of something? Switch it off and customers see "Khatam!" instantly.</p>
-          {CATEGORIES.map((c) => (
-            <section key={c.id}>
-              <h4>{c.label}</h4>
-              {MENU.filter((m) => m.cat === c.id).map((m) => {
-                const on = !soldOut.includes(m.id);
-                return (
-                  <label key={m.id} className="stock-row" htmlFor={`stock-${m.id}`}>
-                    <span>{m.name}<small>{rs(m.price)}</small></span>
-                    <input id={`stock-${m.id}`} type="checkbox" className="switch" checked={on} onChange={() => toggleSold(m.id)} />
-                    <em className={on ? "yes" : "no"}>{on ? "Available" : "Sold out"}</em>
-                  </label>
-                );
-              })}
-            </section>
-          ))}
-        </div>
+        <AdminMenu items={items} cats={cats} soldOut={soldOut} onToggleSold={toggleSold} onSave={onSave} onDelete={onDelete} />
       )}
     </main>
   );
@@ -745,6 +747,42 @@ export default function App() {
     connectStore().then(setStore);
   }, []);
   useEffect(() => (store ? store.onKitchen((k) => setSoldOut(k.soldOut)) : undefined), [store]);
+
+  // the menu: built-in from data.ts until the admin edits it, then the saved one
+  const [menuDocs, setMenuDocs] = useState<Item[]>([]);
+  const [meta, setMeta] = useState<MenuMeta | null | undefined>(undefined);
+  useEffect(() => (store ? store.onMenu(setMenuDocs) : undefined), [store]);
+  useEffect(() => {
+    if (!store) return;
+    const t = window.setTimeout(() => setMeta((m) => (m === undefined ? null : m)), 4000);
+    const off = store.onMenuMeta(setMeta);
+    return () => { window.clearTimeout(t); off(); };
+  }, [store]);
+  const seeded = !!meta?.seeded;
+  const items = useMemo<Item[]>(
+    () => (seeded ? [...menuDocs].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)) : MENU.map((m, i) => ({ ...m, order: i * 10 }))),
+    [seeded, menuDocs]
+  );
+  const cats: Cat[] = seeded && meta?.cats?.length ? meta.cats : CATEGORIES;
+
+  // first edit copies the built-in menu into the database, so every phone sees the same menu after
+  const ensureSeeded = async (skip?: string) => {
+    if (!store || seeded) return;
+    for (const it of items) if (it.id !== skip) await store.saveItem(it);
+    await store.setMenuMeta({ seeded: true, cats: [...cats] });
+  };
+  const saveFood = async (it: Item, newCat?: Cat) => {
+    if (!store) return;
+    await ensureSeeded();
+    await store.saveItem(it);
+    if (newCat) await store.setMenuMeta({ seeded: true, cats: [...cats, newCat] });
+  };
+  const deleteFood = async (id: string) => {
+    if (!store) return;
+    if (!seeded) await ensureSeeded(id);
+    else await store.deleteItem(id);
+    if (soldOut.includes(id)) await store.setSoldOut(soldOut.filter((x) => x !== id));
+  };
   // with a real login, the admin screen follows the signed-in state
   const [adminOk, setAdminOk] = useState<boolean | null>(null);
   useEffect(() => (store?.adminAuth ? store.adminAuth.onUser(setAdminOk) : undefined), [store]);
@@ -849,8 +887,10 @@ export default function App() {
           }}
         />
       )}
-      {screen === "menu" && diner && store && (
+      {screen === "menu" && diner && store && meta !== undefined && (
         <MenuScreen
+          items={items}
+          cats={cats}
           diner={diner}
           store={store}
           soldOut={soldOut}
@@ -870,13 +910,13 @@ export default function App() {
           }}
         />
       )}
-      {screen === "menu" && !store && <p className="fine center">Heating the tawa…</p>}
+      {screen === "menu" && (!store || meta === undefined) && <p className="fine center">Heating the tawa…</p>}
       {screen === "status" && store && (
         <StatusScreen store={store} ids={myOrders} justSent={justSent} more={() => { setJustSent(false); setScreen("menu"); speak("Round two! Respect.", "love"); }} />
       )}
       {screen === "adminLogin" && <AdminLogin store={store} back={() => go("home")} ok={() => setScreen("admin")} onSay={speak} />}
       {screen === "admin" && store && (!store.adminAuth || adminOk) && (
-        <Admin store={store} soldOut={soldOut} logout={() => { store.adminAuth?.signOut().catch(() => {}); session.clear("admin"); go("home"); }} />
+        <Admin store={store} soldOut={soldOut} items={items} cats={cats} onSave={saveFood} onDelete={deleteFood} logout={() => { store.adminAuth?.signOut().catch(() => {}); session.clear("admin"); go("home"); }} />
       )}
 
       {showMini && (
