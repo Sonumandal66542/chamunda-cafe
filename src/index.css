@@ -538,3 +538,49 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 }
 .sheet label.special-row { display: grid; }
 .sheet label.photo-up { display: inline-block; font-size: 14px; }
+
+/* ---------- my orders history ---------- */
+.screen-title.tight { margin: 4px 0 0; font-size: 26px; display: flex; align-items: baseline; gap: 8px; }
+.screen-title small { font-family: var(--font-mono); font-size: 13px; background: var(--ink); color: var(--butter); border-radius: 999px; padding: 1px 9px; }
+.day { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; margin: 6px 0 -6px; color: var(--muted); font-weight: 500; }
+.day-group { display: grid; gap: 12px; }
+.track header { align-items: center; }
+.track-when { display: grid; line-height: 1.2; }
+.track-when b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.track-when span { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.track.is-done { box-shadow: var(--shadow-sm); }
+.track.is-done .mini { font-size: 14px; }
+.track.is-cancelled { background: #fbe9e4; border-style: dashed; }
+.track.is-cancelled .mini { text-decoration: line-through; text-decoration-color: rgba(42, 20, 6, 0.4); }
+.track.is-cancelled .mini-total { text-decoration: none; }
+.cancel-box { display: grid; gap: 2px; margin: 10px 0; padding: 8px 10px; border: 2px solid var(--chilli); border-radius: 10px; background: #fff; font-size: 14px; }
+.cancel-box b { color: var(--chilli); font-size: 15px; }
+.p-cancelled { background: var(--chilli); color: #fff; }
+
+/* ---------- alerts (cancelled / ready) ---------- */
+.alerts {
+  position: fixed; z-index: 48; left: 50%; transform: translateX(-50%);
+  top: calc(env(safe-area-inset-top, 0px) + 60px);
+  width: min(488px, calc(100% - 2 * max(16px, env(safe-area-inset-left, 0px))));
+  display: grid; gap: 8px;
+}
+.alert {
+  display: grid; gap: 4px; padding: 10px 12px; border: 3px solid var(--ink); border-radius: 14px;
+  box-shadow: var(--shadow); animation: drop 0.35s cubic-bezier(.3,1.5,.5,1);
+}
+@keyframes drop { from { transform: translateY(-30px); opacity: 0; } }
+.alert-cancelled { background: var(--chilli); color: #fff; }
+.alert-ready { background: var(--chutney); color: #fff; }
+.alert b { font-family: var(--font-display); font-weight: 400; font-size: 17px; }
+.alert span { font-size: 14px; line-height: 1.35; }
+.alert-act { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; }
+.alert-act button { border: 2px solid var(--ink); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 2px 12px; font-weight: 800; font-size: 13px; }
+
+/* ---------- admin cancel ---------- */
+.ticket.st-cancelled { opacity: 1; background: #f3ece4; border-style: dashed; }
+.ticket.st-cancelled .mini { text-decoration: line-through; text-decoration-color: rgba(42, 20, 6, 0.4); }
+.cancel-note { margin: 0; font-weight: 700; font-size: 14px; color: var(--chilli); }
+.cancel-panel { display: grid; gap: 8px; padding: 10px; border: 2px dashed var(--chilli); border-radius: 10px; background: #fff; }
+.cancel-panel b { font-size: 14px; }
+.cancel-panel .chips button { font-size: 13px; }
+.cancel-panel input { font-size: 15px; padding: 8px 10px; }

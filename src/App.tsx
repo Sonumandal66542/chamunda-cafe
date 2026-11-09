@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mascot, Bubble, type Mood } from "./Mascot";
 import { FoodPic } from "./FoodArt";
 import { AdminMenu } from "./AdminMenu";
-import { RESTAURANT, MENU, CATEGORIES, LINES, STATUS, BREAKING, pick, type Item, type StatusId } from "./data";
+import { RESTAURANT, MENU, CATEGORIES, LINES, STATUS, BREAKING, CANCEL_REASONS, pick, type Item, type StatusId } from "./data";
 import { connectStore, session, type Store, type Order, type Cat, type MenuMeta } from "./store";
 
 type Screen = "home" | "who" | "menu" | "status" | "adminLogin" | "admin";
@@ -17,6 +17,20 @@ const qrTable = (): number => {
     return 0;
   }
 };
+
+const timeOf = (t: number) => new Date(t).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+const dayOf = (t: number) => {
+  const d = new Date(t);
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const diff = Math.round((start.getTime() - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", ...(d.getFullYear() !== start.getFullYear() ? { year: "numeric" } : {}) });
+};
+const whenOf = (t: number) => `${dayOf(t)}, ${timeOf(t)}`;
+const statusLabel = (s: StatusId) => (s === "cancelled" ? "Cancelled" : STATUS.find((x) => x.id === s)?.short || s);
+const isOpen = (s: StatusId) => s !== "served" && s !== "cancelled";
 
 const rs = (n: number) => `${RESTAURANT.currency} ${n.toLocaleString("en-IN")}`;
 const ago = (t: number) => {
@@ -287,6 +301,12 @@ function MenuScreen({
 
   const send = async () => {
     if (!lines.length) return;
+    // ask now (while the tap counts) so we can alert them if the cafe cancels or the food is ready
+    try {
+      if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+    } catch {
+      /* not supported here */
+    }
     setSending(true);
     setSendErr("");
     try {
@@ -301,6 +321,8 @@ function MenuScreen({
         status: "new",
         createdAt: Date.now(),
       });
+      // save the empty cart right away: this screen closes before its save-on-change effect would run
+      session.set("cart", {});
       setCart({});
       setNote("");
       setOpen(false);
@@ -426,57 +448,133 @@ function MenuScreen({
   );
 }
 
-function StatusScreen({ store, ids, more, justSent }: { store: Store; ids: string[]; more: () => void; justSent: boolean }) {
-  const [orders, setOrders] = useState<Record<string, Order | null>>({});
-  useEffect(() => {
-    const unsubs = ids.map((id) => store.onOrder(id, (o) => setOrders((p) => ({ ...p, [id]: o }))));
-    return () => unsubs.forEach((u) => u());
-  }, [store, ids.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+function Steps({ status }: { status: StatusId }) {
+  const i = STATUS.findIndex((x) => x.id === status);
+  return (
+    <ol className="steps">
+      {STATUS.map((x, k) => (
+        <li key={x.id} className={k < i ? "done" : k === i ? "now" : ""}>
+          <span className="dot" />
+          {x.label}
+        </li>
+      ))}
+    </ol>
+  );
+}
 
-  const list = ids.map((id) => orders[id]).filter(Boolean) as Order[];
-  const latest = list[list.length - 1];
-  const idx = latest ? STATUS.findIndex((s) => s.id === latest.status) : 0;
+function OrderCard({ o, big }: { o: Order; big?: boolean }) {
+  return (
+    <section className={`track ${o.status === "cancelled" ? "is-cancelled" : ""} ${!big && !isOpen(o.status) ? "is-done" : ""}`}>
+      <header>
+        <div className="track-when">
+          <b>{timeOf(o.createdAt)}</b>
+          <span>{dayOf(o.createdAt)} · Table {o.table}</span>
+        </div>
+        <span className={`pill p-${o.status}`}>{statusLabel(o.status)}</span>
+      </header>
+      {o.status === "cancelled" ? (
+        <div className="cancel-box" role="status">
+          <b>Cancelled by the cafe{o.cancelledAt ? ` at ${timeOf(o.cancelledAt)}` : ""}</b>
+          {o.cancelReason && <span>Reason: {o.cancelReason}</span>}
+          <span>You won't be charged for this order. Questions? Wave at the staff.</span>
+        </div>
+      ) : (
+        isOpen(o.status) && <Steps status={o.status} />
+      )}
+      <ul className="mini">
+        {o.items.map((l) => (
+          <li key={l.id}><span>{l.qty}× {l.name}</span><span>{rs(l.qty * l.price)}</span></li>
+        ))}
+        <li className="mini-total"><span>Total</span><span>{rs(o.total)}</span></li>
+      </ul>
+    </section>
+  );
+}
+
+function MyOrders({
+  ids, mine, more, justSent, canOrder,
+}: {
+  ids: string[];
+  mine: Record<string, Order | null>;
+  more: () => void;
+  justSent: boolean;
+  canOrder: boolean;
+}) {
+  const list = ids.map((id) => mine[id]).filter(Boolean) as Order[];
+  list.sort((a, b) => b.createdAt - a.createdAt);
+  const loading = ids.some((id) => mine[id] === undefined);
+  const latest = list[0];
+  const open = list.filter((o) => isOpen(o.status));
+  const idx = latest ? STATUS.findIndex((x) => x.id === latest.status) : 0;
+  const line = !latest
+    ? "Finding your orders…"
+    : latest.status === "cancelled"
+      ? "Oh no. Your latest order was cancelled. The staff can sort it out."
+      : STATUS[Math.max(0, idx)].line;
+
+  // group finished orders by day
+  const past = list.filter((o) => !isOpen(o.status));
+  const days: { day: string; orders: Order[] }[] = [];
+  for (const o of past) {
+    const d = dayOf(o.createdAt);
+    const g = days.find((x) => x.day === d);
+    if (g) g.orders.push(o);
+    else days.push({ day: d, orders: [o] });
+  }
 
   return (
     <main className="status">
       {justSent && <ButterRain />}
       {justSent && <h2 className="shout">ORDER SENT<br />TO TAWA!</h2>}
       <div className="status-mascot">
-        <Mascot mood={idx >= 3 ? "love" : idx >= 2 ? "shock" : "happy"} size={150} />
-        <Bubble text={latest ? STATUS[idx].line : "Finding your order…"} side="right" />
+        <Mascot mood={latest?.status === "cancelled" ? "sad" : idx >= 3 ? "love" : idx >= 2 ? "shock" : "happy"} size={130} />
+        <Bubble text={line} side="right" />
       </div>
 
-      {list.length === 0 && <p className="fine center">Loading your order… if this takes long, ask the staff. They're nice. Mostly.</p>}
+      <h2 className="screen-title tight">My orders <small>{list.length}</small></h2>
+      {list.length === 0 && (
+        <p className="fine center">{loading ? "Loading your orders…" : "No orders on this phone yet. Your orders will show up here with date and time."}</p>
+      )}
 
-      {list.slice().reverse().map((o, n) => {
-        const i = STATUS.findIndex((s) => s.id === o.status);
-        return (
-          <section key={o.id} className="track">
-            <header>
-              <b>{n === 0 ? "Latest order" : "Earlier order"}</b>
-              <span>Table {o.table} · {ago(o.createdAt)}</span>
-            </header>
-            <ol className="steps">
-              {STATUS.map((s, k) => (
-                <li key={s.id} className={k < i ? "done" : k === i ? "now" : ""}>
-                  <span className="dot" />
-                  {s.label}
-                </li>
-              ))}
-            </ol>
-            <ul className="mini">
-              {o.items.map((l) => (
-                <li key={l.id}><span>{l.qty}× {l.name}</span><span>{rs(l.qty * l.price)}</span></li>
-              ))}
-              <li className="mini-total"><span>Total</span><span>{rs(o.total)}</span></li>
-            </ul>
-          </section>
-        );
-      })}
-      <button className="cta" onClick={more} id="btn-more" type="button">Order more (you know you want to)</button>
+      {open.length > 0 && (
+        <>
+          <h3 className="day">In the kitchen now</h3>
+          {open.map((o) => <OrderCard key={o.id} o={o} big />)}
+        </>
+      )}
+      {days.map((g) => (
+        <div key={g.day} className="day-group">
+          <h3 className="day">{g.day}</h3>
+          {g.orders.map((o) => <OrderCard key={o.id} o={o} />)}
+        </div>
+      ))}
+
+      <button className="cta" onClick={more} id="btn-more" type="button">
+        {canOrder ? "Order more (you know you want to)" : "Start a new order"}
+      </button>
     </main>
   );
 }
+
+function AlertBar({ alerts, close, see }: { alerts: Alert[]; close: (k: number) => void; see: () => void }) {
+  if (!alerts.length) return null;
+  return (
+    <div className="alerts" aria-live="assertive">
+      {alerts.map((a) => (
+        <div key={a.key} className={`alert alert-${a.kind}`} role="alert">
+          <b>{a.kind === "cancelled" ? "Order cancelled" : "Your food is ready!"}</b>
+          <span>{a.text}</span>
+          <div className="alert-act">
+            <button type="button" onClick={() => { see(); close(a.key); }}>See my orders</button>
+            <button type="button" onClick={() => close(a.key)} aria-label="Dismiss">✕</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type Alert = { key: number; id: string; kind: "cancelled" | "ready"; text: string };
 
 function AdminLogin({ back, ok, onSay, store }: { back: () => void; ok: () => void; onSay: (s: string, m?: Mood) => void; store: Store | null }) {
   const [email, setEmail] = useState("");
@@ -555,6 +653,8 @@ function Admin({
   const [tab, setTab] = useState<"orders" | "tables" | "menu">("orders");
   const [filter, setFilter] = useState<StatusId | "active" | "all">("active");
   const [confirm, setConfirm] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<{ id: string; reason: string; other: string } | null>(null);
+  const [actErr, setActErr] = useState("");
   const [, tick] = useState(0);
   const seen = useRef<Set<string> | null>(null);
   const [fresh, setFresh] = useState<string[]>([]);
@@ -597,30 +697,34 @@ function Admin({
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const todays = orders.filter((o) => o.createdAt >= today.getTime());
-  const active = orders.filter((o) => o.status !== "served");
+  const todays = orders.filter((o) => o.createdAt >= today.getTime() && o.status !== "cancelled");
+  const active = orders.filter((o) => isOpen(o.status));
   const sales = todays.reduce((s, o) => s + o.total, 0);
 
   const shown = orders
-    .filter((o) => (filter === "all" ? true : filter === "active" ? o.status !== "served" : o.status === filter))
+    .filter((o) => (filter === "all" ? true : filter === "active" ? isOpen(o.status) : o.status === filter))
     .sort((a, b) => (filter === "active" || filter === "new" || filter === "cooking" || filter === "ready" ? a.createdAt - b.createdAt : b.createdAt - a.createdAt));
 
   const next = (o: Order) => {
     const i = STATUS.findIndex((s) => s.id === o.status);
-    if (i < STATUS.length - 1) store.setStatus(o.id, STATUS[i + 1].id).catch(() => {});
+    if (i >= 0 && i < STATUS.length - 1) store.setStatus(o.id, STATUS[i + 1].id).catch(() => setActErr("Couldn't update. Check the internet and try again."));
+  };
+  const doCancel = async () => {
+    if (!cancelling) return;
+    const reason = (cancelling.reason === "Other" ? cancelling.other.trim() : cancelling.reason).slice(0, 80);
+    try {
+      await store.cancelOrder(cancelling.id, reason);
+      setCancelling(null);
+      setActErr("");
+    } catch {
+      setActErr("Couldn't cancel. Check the internet and try again.");
+    }
   };
   const nextLabel: Record<string, string> = { new: "Start cooking", cooking: "Mark ready", ready: "Mark served" };
 
   const toggleSold = (id: string) => {
     const n = soldOut.includes(id) ? soldOut.filter((x) => x !== id) : [...soldOut, id];
     store.setSoldOut(n).catch(() => {});
-  };
-
-  const clearServed = async () => {
-    for (const o of orders.filter((o) => o.status === "served")) {
-      await store.removeOrder(o.id).catch(() => {});
-    }
-    setConfirm(null);
   };
 
   return (
@@ -651,7 +755,7 @@ function Admin({
       {tab === "orders" && (
         <>
           <div className="chips">
-            {([["active", "Active"], ["new", "New"], ["cooking", "Cooking"], ["ready", "Ready"], ["served", "Served"], ["all", "All"]] as const).map(([k, l]) => (
+            {([["active", "Active"], ["new", "New"], ["cooking", "Cooking"], ["ready", "Ready"], ["served", "Served"], ["cancelled", "Cancelled"], ["all", "All"]] as const).map(([k, l]) => (
               <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)} type="button">
                 {l}
                 <small>{k === "all" ? orders.length : k === "active" ? active.length : orders.filter((o) => o.status === k).length}</small>
@@ -662,10 +766,11 @@ function Admin({
           {shown.length === 0 && (
             <div className="empty-admin">
               <Mascot mood="sad" size={110} />
-              <p>{filter === "active" ? "No active orders. The tawa is lonely. When a customer orders, it pops up here with a ding." : "Nothing here yet."}</p>
+              <p>{filter === "active" ? "No active orders. The tawa is lonely. When a customer orders, it pops up here with a ding." : filter === "cancelled" ? "No cancelled orders. Cancelled orders stay here as a record." : "Nothing here yet."}</p>
             </div>
           )}
 
+          {actErr && <p className="err" role="alert">{actErr}</p>}
           <div className="tickets">
             {shown.map((o) => (
               <article key={o.id} className={`ticket st-${o.status} ${fresh.includes(o.id) ? "fresh" : ""}`}>
@@ -674,9 +779,9 @@ function Admin({
                   <div className="who-line">
                     <b>{o.kind === "guest" ? "Guest" : o.name}</b>
                     {o.phone && <span className="mono">{o.phone}</span>}
-                    <span className="time">{ago(o.createdAt)}</span>
+                    <span className="time">{whenOf(o.createdAt)} · {ago(o.createdAt)}</span>
                   </div>
-                  <span className={`pill p-${o.status}`}>{STATUS.find((s) => s.id === o.status)?.short}</span>
+                  <span className={`pill p-${o.status}`}>{statusLabel(o.status)}</span>
                 </div>
                 <ul className="mini">
                   {o.items.map((l) => (
@@ -685,27 +790,52 @@ function Admin({
                   <li className="mini-total"><span>Total</span><span>{rs(o.total)}</span></li>
                 </ul>
                 {o.note && <p className="chef-note">Note: {o.note}</p>}
-                <div className="ticket-act">
-                  {o.status !== "served" && (
-                    <button className="cta small" onClick={() => next(o)} type="button">{nextLabel[o.status]}</button>
-                  )}
-                  {confirm === o.id ? (
-                    <button className="ghost small danger" onClick={() => { store.removeOrder(o.id).catch(() => {}); setConfirm(null); }} type="button">Tap again to delete</button>
-                  ) : (
-                    <button className="ghost small" onClick={() => setConfirm(o.id)} type="button">Delete</button>
-                  )}
-                </div>
+                {o.status === "cancelled" && (
+                  <p className="cancel-note">
+                    Cancelled{o.cancelledAt ? ` ${whenOf(o.cancelledAt)}` : ""}{o.cancelReason ? ` · ${o.cancelReason}` : ""}
+                  </p>
+                )}
+                {cancelling?.id === o.id ? (
+                  <div className="cancel-panel">
+                    <b>Why cancel? The customer will see this.</b>
+                    <div className="chips wrap">
+                      {[...CANCEL_REASONS, "Other"].map((r) => (
+                        <button key={r} type="button" className={cancelling.reason === r ? "on" : ""} onClick={() => setCancelling({ ...cancelling, reason: r })}>{r}</button>
+                      ))}
+                    </div>
+                    {cancelling.reason === "Other" && (
+                      <input id={`f-cancel-${o.id}`} value={cancelling.other} onChange={(e) => setCancelling({ ...cancelling, other: e.target.value })} maxLength={80} placeholder="Type the reason" aria-label="Cancel reason" />
+                    )}
+                    <div className="ticket-act">
+                      <button className="ghost small" type="button" onClick={() => setCancelling(null)}>Keep order</button>
+                      <button className="ghost small danger" type="button" onClick={doCancel} id={`confirm-cancel-${o.id}`}>Cancel this order</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="ticket-act">
+                    {o.status === "cancelled" ? (
+                      <>
+                        <button className="ghost small" onClick={() => store.setStatus(o.id, "new").catch(() => setActErr("Couldn't restore. Try again."))} type="button">Restore order</button>
+                        {confirm === o.id ? (
+                          <button className="ghost small danger" onClick={() => { store.removeOrder(o.id).catch(() => {}); setConfirm(null); }} type="button">Tap again: delete forever</button>
+                        ) : (
+                          <button className="ghost small" onClick={() => setConfirm(o.id)} type="button">Delete forever</button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <button className="ghost small" onClick={() => setCancelling({ id: o.id, reason: CANCEL_REASONS[0], other: "" })} type="button" id={`cancel-${o.id}`}>Cancel</button>
+                        {o.status !== "served" && (
+                          <button className="cta small" onClick={() => next(o)} type="button">{nextLabel[o.status]}</button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </article>
             ))}
           </div>
 
-          {orders.some((o) => o.status === "served") && (
-            confirm === "__served" ? (
-              <button className="ghost danger wide" onClick={clearServed} type="button">Tap again: delete all served orders</button>
-            ) : (
-              <button className="ghost wide" onClick={() => setConfirm("__served")} type="button">Clear served orders</button>
-            )
-          )}
         </>
       )}
 
@@ -713,7 +843,7 @@ function Admin({
         <div className="table-grid">
           {Array.from({ length: RESTAURANT.tables }, (_, i) => i + 1).map((t) => {
             const at = active.filter((o) => o.table === t);
-            const bill = orders.filter((o) => o.table === t && o.createdAt >= today.getTime()).reduce((s, o) => s + o.total, 0);
+            const bill = orders.filter((o) => o.table === t && o.createdAt >= today.getTime() && o.status !== "cancelled").reduce((s, o) => s + o.total, 0);
             const worst = at.find((o) => o.status === "new") ? "new" : at.find((o) => o.status === "cooking") ? "cooking" : at.length ? "ready" : "free";
             return (
               <button key={t} className={`tbl tbl-${worst}`} onClick={() => { setTab("orders"); setFilter("all"); }} type="button">
@@ -751,7 +881,10 @@ export default function App() {
     }
     return d;
   });
-  const [myOrders, setMyOrders] = useState<string[]>(() => session.get<string[]>("orders", []));
+  // every order placed on this phone (kept after Exit, so My orders shows the full history)
+  const [myOrders, setMyOrders] = useState<string[]>(() => session.get<string[]>("history", session.get<string[]>("orders", [])));
+  const [mine, setMine] = useState<Record<string, Order | null>>({});
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [justSent, setJustSent] = useState(false);
   const [soldOut, setSoldOut] = useState<string[]>([]);
   const [say, setSayText] = useState("Namaste! I'm a paratha. I can talk. Don't make it weird.");
@@ -766,6 +899,72 @@ export default function App() {
     connectStore().then(setStore);
   }, []);
   useEffect(() => (store ? store.onKitchen((k) => setSoldOut(k.soldOut)) : undefined), [store]);
+
+  // follow my orders live
+  useEffect(() => {
+    if (!store) return;
+    const offs = myOrders.map((id) => store.onOrder(id, (o) => setMine((p) => ({ ...p, [id]: o }))));
+    return () => offs.forEach((f) => f());
+  }, [store, myOrders.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // alert when the cafe cancels an order or the food is ready (also after reopening the site)
+  useEffect(() => {
+    const seen = session.get<Record<string, string>>("seen", {});
+    let changed = false;
+    const fresh: Alert[] = [];
+    for (const o of Object.values(mine)) {
+      if (!o || seen[o.id] === o.status) continue;
+      const before = seen[o.id];
+      seen[o.id] = o.status;
+      changed = true;
+      // only alert on a change this phone saw happen (no alerts for old orders on first load)
+      if (before !== undefined && (o.status === "cancelled" || o.status === "ready")) {
+        fresh.push({
+          key: Date.now() + Math.random(),
+          id: o.id,
+          kind: o.status,
+          text:
+            o.status === "cancelled"
+              ? `Your ${timeOf(o.createdAt)} order (Table ${o.table}, ${rs(o.total)}) was cancelled${o.cancelReason ? `: ${o.cancelReason}` : ""}. You won't be charged.`
+              : `Your ${timeOf(o.createdAt)} order is on its way to Table ${o.table}. Make space on the table!`,
+        });
+      }
+    }
+    if (changed) session.set("seen", seen);
+    if (!fresh.length) return;
+    setAlerts((a) => [...a, ...fresh]);
+    const cancelled = fresh.some((f) => f.kind === "cancelled");
+    speak(cancelled ? "Oh no! An order was cancelled. Check My orders." : "Food is coming! Make space!", cancelled ? "sad" : "love");
+    try {
+      navigator.vibrate?.(cancelled ? [300, 120, 300] : [120, 80, 120]);
+    } catch {
+      /* ignore */
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+      const ac = new AC();
+      (cancelled ? [660, 440] : [880, 1320]).forEach((f, i) => {
+        const o = ac.createOscillator();
+        const g = ac.createGain();
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0.15, ac.currentTime + i * 0.2);
+        g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + i * 0.2 + 0.35);
+        o.connect(g).connect(ac.destination);
+        o.start(ac.currentTime + i * 0.2);
+        o.stop(ac.currentTime + i * 0.2 + 0.35);
+      });
+    } catch {
+      /* no sound */
+    }
+    try {
+      if ("Notification" in window && Notification.permission === "granted" && document.visibilityState !== "visible") {
+        for (const f of fresh) new Notification(f.kind === "cancelled" ? `${RESTAURANT.name}: order cancelled` : `${RESTAURANT.name}: food is ready`, { body: f.text, tag: f.id });
+      }
+    } catch {
+      /* phone doesn't allow it */
+    }
+  }, [mine]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the menu: built-in from data.ts until the admin edits it, then the saved one
   const [menuDocs, setMenuDocs] = useState<Item[]>([]);
@@ -853,11 +1052,9 @@ export default function App() {
 
   const leave = () => {
     session.clear("diner");
-    session.clear("orders");
     session.clear("cart");
     session.clear("admin");
     setDiner(null);
-    setMyOrders([]);
     setExitAsk(false);
     go("home");
   };
@@ -882,11 +1079,17 @@ export default function App() {
             )}
           </div>
         )}
-        {diner && screen === "menu" && myOrders.length > 0 && (
-          <button className="track-btn" onClick={() => setScreen("status")} type="button">My orders</button>
+        {myOrders.length > 0 && (screen === "menu" || screen === "home") && (
+          <button className="track-btn" onClick={() => { setJustSent(false); setScreen("status"); }} type="button" id="btn-my-orders">My orders</button>
+        )}
+        {screen === "status" && diner && (
+          <button className="track-btn" onClick={() => setScreen("menu")} type="button">Menu</button>
         )}
       </header>
 
+      {screen !== "admin" && screen !== "adminLogin" && (
+        <AlertBar alerts={alerts} close={(k) => setAlerts((a) => a.filter((x) => x.key !== k))} see={() => { setAlerts([]); setJustSent(false); setScreen("status"); }} />
+      )}
       {store?.mode === "local" && (screen === "admin" || screen === "status") && (
         <p className="demo-note">Demo mode: orders are saved on this phone only. Open the published link to share orders between phones.</p>
       )}
@@ -916,9 +1119,9 @@ export default function App() {
           onSay={speak}
           addFx={addFx}
           onOrdered={(id) => {
-            const n = [...myOrders, id];
+            const n = [...myOrders, id].slice(-40);
             setMyOrders(n);
-            session.set("orders", n);
+            session.set("history", n);
             setJustSent(true);
             setScreen("status");
             try {
@@ -931,7 +1134,19 @@ export default function App() {
       )}
       {screen === "menu" && (!store || meta === undefined) && <p className="fine center">Heating the tawa…</p>}
       {screen === "status" && store && (
-        <StatusScreen store={store} ids={myOrders} justSent={justSent} more={() => { setJustSent(false); setScreen("menu"); speak("Round two! Respect.", "love"); }} />
+        <MyOrders
+          ids={myOrders}
+          mine={mine}
+          justSent={justSent}
+          canOrder={!!diner}
+          more={() => {
+            setJustSent(false);
+            if (diner) {
+              setScreen("menu");
+              speak("Round two! Respect.", "love");
+            } else go("who");
+          }}
+        />
       )}
       {screen === "adminLogin" && <AdminLogin store={store} back={() => go("home")} ok={() => setScreen("admin")} onSay={speak} />}
       {screen === "admin" && store && (!store.adminAuth || adminOk) && (

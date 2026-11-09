@@ -9,7 +9,12 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      ...(process.env.ARTIFACT ? { "./firebaseStore": path.resolve(__dirname, "./src/firebaseStub.ts") } : {}),
+      ...(process.env.ARTIFACT
+        ? {
+            "./firebaseStore": path.resolve(__dirname, "./src/firebaseStub.ts"),
+            "./firebase-config": path.resolve(__dirname, "./src/firebase-config.none.ts"),
+          }
+        : {}),
     },
   },
 });

@@ -36,6 +36,9 @@ export function firebaseStore(config: Record<string, string>): Store {
     async setStatus(id, s) {
       await updateDoc(doc(orders, id), { status: s });
     },
+    async cancelOrder(id, reason) {
+      await updateDoc(doc(orders, id), { status: "cancelled", cancelReason: reason, cancelledAt: Date.now() });
+    },
     async removeOrder(id) {
       await deleteDoc(doc(orders, id));
     },

@@ -13,6 +13,8 @@ export type Order = {
   total: number;
   status: StatusId;
   createdAt: number;
+  cancelReason?: string;
+  cancelledAt?: number;
 };
 export type Kitchen = { soldOut: string[] };
 export type Cat = { id: string; label: string };
@@ -30,6 +32,7 @@ export type Store = {
   onOrder(id: string, cb: (o: Order | null) => void): () => void;
   addOrder(o: Omit<Order, "id">): Promise<string>;
   setStatus(id: string, s: StatusId): Promise<void>;
+  cancelOrder(id: string, reason: string): Promise<void>;
   removeOrder(id: string): Promise<void>;
   onKitchen(cb: (k: Kitchen) => void): () => void;
   setSoldOut(ids: string[]): Promise<void>;
@@ -73,6 +76,9 @@ function liveStore(db: any): Store {
     },
     async setStatus(id, s) {
       await orders.doc(id).update({ status: s });
+    },
+    async cancelOrder(id, reason) {
+      await orders.doc(id).update({ status: "cancelled", cancelReason: reason, cancelledAt: Date.now() });
     },
     async removeOrder(id) {
       await orders.doc(id).delete();
@@ -186,6 +192,10 @@ function localStore(): Store {
       orders = orders.map((o) => (o.id === id ? { ...o, status: s } : o));
       emitO();
     },
+    async cancelOrder(id, reason) {
+      orders = orders.map((o) => (o.id === id ? { ...o, status: "cancelled", cancelReason: reason, cancelledAt: Date.now() } : o));
+      emitO();
+    },
     async removeOrder(id) {
       orders = orders.filter((o) => o.id !== id);
       emitO();
@@ -227,8 +237,12 @@ function localStore(): Store {
 
 export async function connectStore(): Promise<Store> {
   if (firebaseConfig) {
-    const { firebaseStore } = await import("./firebaseStore");
-    return firebaseStore(firebaseConfig);
+    try {
+      const { firebaseStore } = await import("./firebaseStore");
+      return firebaseStore(firebaseConfig);
+    } catch {
+      /* fall back below */
+    }
   }
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

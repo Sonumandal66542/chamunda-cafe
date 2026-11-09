@@ -124,7 +124,10 @@ export const STATUS = [
   { id: "served", label: "Served. Eat!", short: "Served", line: "Eat now, talk later. Rate us 5 stars in your heart." },
 ] as const;
 
-export type StatusId = typeof STATUS[number]["id"];
+export type StatusId = typeof STATUS[number]["id"] | "cancelled";
+
+// quick reasons the owner can tap when cancelling; the customer sees the one chosen
+export const CANCEL_REASONS = ["Item sold out", "Kitchen is closing", "Customer asked to cancel", "Duplicate or wrong table"];
 
 export const BREAKING = [
   "BREAKING: Local paratha learns to talk, starts taking orders",
