@@ -9,6 +9,13 @@ import { connectStore, session, type Store, type Order, type Cat, type MenuMeta 
 type Screen = "home" | "who" | "menu" | "status" | "adminLogin" | "admin";
 type Diner = { kind: "guest" | "customer"; name: string; phone: string; table: number };
 
+// Which link this is: "customer" (the public ordering link), "admin" (the owner's Kitchen Boss link),
+// or "both" (the Claude demo, which has everything on one page). Set on <div id="root" data-mode="...">.
+const MODE: "customer" | "admin" | "both" = (() => {
+  const m = document.getElementById("root")?.dataset.mode;
+  return m === "customer" || m === "admin" ? m : "both";
+})();
+
 // table number from the QR code on the table: ...?t=5
 const qrTable = (): number => {
   try {
@@ -131,11 +138,13 @@ function Home({
           <span className="door-title">I'm Hungry</span>
           <span className="door-sub">{seatedAt ? `Back to the menu for Table ${seatedAt}.` : qrTable() ? `You're at Table ${qrTable()}. Tap here and start ordering.` : "Guest or regular. Pick a table, start ordering."}</span>
         </button>
-        <button className="door door-boss" onClick={boss} id="btn-admin">
-          <span className="door-kicker">Admin</span>
-          <span className="door-title">Kitchen Boss</span>
-          <span className="door-sub">{bossIn ? "You're logged in. Back to the control room." : "Staff only. Uncles, please sit down."}</span>
-        </button>
+        {MODE !== "customer" && (
+          <button className="door door-boss" onClick={boss} id="btn-admin">
+            <span className="door-kicker">Admin</span>
+            <span className="door-title">Kitchen Boss</span>
+            <span className="door-sub">{bossIn ? "You're logged in. Back to the control room." : "Staff only. Uncles, please sit down."}</span>
+          </button>
+        )}
       </div>
 
       <ul className="rules">
@@ -601,7 +610,7 @@ function AlertBar({ alerts, close, see }: { alerts: Alert[]; close: (k: number) 
 
 type Alert = { key: number; id: string; kind: "cancelled" | "ready"; text: string };
 
-function AdminLogin({ back, ok, onSay, store }: { back: () => void; ok: () => void; onSay: (s: string, m?: Mood) => void; store: Store | null }) {
+function AdminLogin({ back, ok, onSay, store }: { back?: () => void; ok: () => void; onSay: (s: string, m?: Mood) => void; store: Store | null }) {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
@@ -641,7 +650,7 @@ function AdminLogin({ back, ok, onSay, store }: { back: () => void; ok: () => vo
   };
   return (
     <main className="who">
-      <button className="back" onClick={back} type="button">← Back</button>
+      {back && <button className="back" onClick={back} type="button">← Back</button>}
       <h2 className="screen-title">Kitchen Boss</h2>
       <p className="guest-note">{LINES.admin[0]}</p>
       <form className={`sheet-form ${shake ? "shake" : ""}`} key={shake} onSubmit={submit}>
@@ -905,7 +914,11 @@ function Admin({
 
 export default function App() {
   const [store, setStore] = useState<Store | null>(null);
-  const [screen, setScreen] = useState<Screen>(() => (session.get("admin", false) ? "admin" : session.get<Diner | null>("diner", null) ? "menu" : "home"));
+  const [screen, setScreen] = useState<Screen>(() => {
+    if (MODE === "admin") return session.get("admin", false) ? "admin" : "adminLogin";
+    if (MODE === "both" && session.get("admin", false)) return "admin";
+    return session.get<Diner | null>("diner", null) ? "menu" : "home";
+  });
   const [diner, setDiner] = useState<Diner | null>(() => {
     const d = session.get<Diner | null>("diner", null);
     const t = qrTable();
@@ -1101,7 +1114,17 @@ export default function App() {
     <div className="app">
       <Ticker />
       <header className="topbar">
-        <button className="logo" onClick={() => { setExitAsk(false); go("home"); }} type="button" aria-label="Go to home page" id="btn-logo">
+        <button
+          className="logo"
+          onClick={() => {
+            setExitAsk(false);
+            if (MODE === "admin") setScreen(bossIn ? "admin" : "adminLogin");
+            else go("home");
+          }}
+          type="button"
+          aria-label="Go to home page"
+          id="btn-logo"
+        >
           <Mascot mood="wink" size={34} />
           <span>{RESTAURANT.name}</span>
         </button>
@@ -1193,9 +1216,11 @@ export default function App() {
           }}
         />
       )}
-      {screen === "adminLogin" && <AdminLogin store={store} back={() => go("home")} ok={() => setScreen("admin")} onSay={speak} />}
-      {screen === "admin" && store && (!store.adminAuth || adminOk) && (
-        <Admin store={store} soldOut={soldOut} items={items} cats={cats} onSave={saveFood} onDelete={deleteFood} logout={() => { store.adminAuth?.signOut().catch(() => {}); session.clear("admin"); go("home"); }} />
+      {screen === "adminLogin" && MODE !== "customer" && (
+        <AdminLogin store={store} back={MODE === "admin" ? undefined : () => go("home")} ok={() => setScreen("admin")} onSay={speak} />
+      )}
+      {screen === "admin" && MODE !== "customer" && store && (!store.adminAuth || adminOk) && (
+        <Admin store={store} soldOut={soldOut} items={items} cats={cats} onSave={saveFood} onDelete={deleteFood} logout={() => { store.adminAuth?.signOut().catch(() => {}); session.clear("admin"); if (MODE === "admin") setScreen("adminLogin"); else go("home"); }} />
       )}
 
       {showMini && (

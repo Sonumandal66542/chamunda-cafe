@@ -13,6 +13,14 @@ extra=('<meta http-equiv="Content-Security-Policy" content="default-src \'self\'
  '<link rel="preconnect" href="https://fonts.googleapis.com" />\n<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />\n'
  '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Bungee&family=DM+Mono:wght@400;500&display=swap" />')
 s=s.replace('<meta name="claude:viewport-fit-sides" content="cover" />',extra)
-open(p,'w').write(s)
+# customer link: ordering only
+cust=s.replace('<div id="root"></div>','<div id="root" data-mode="customer"></div>')
+open(p,'w').write(cust)
+# owner link: Kitchen Boss only, kept out of search engines
+import os
+os.makedirs('dist/kitchen-boss', exist_ok=True)
+boss=(s.replace('<div id="root"></div>','<div id="root" data-mode="admin"></div>')
+       .replace('<title>Chamunda Cafe</title>','<title>Chamunda Cafe · Kitchen</title>\n<meta name="robots" content="noindex, nofollow" />'))
+open('dist/kitchen-boss/index.html','w').write(boss)
 PY
 touch dist/.nojekyll
