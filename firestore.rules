@@ -1,11 +1,10 @@
-// Copy the ready-made version from the website: Kitchen Boss → Security tab (it fills in OWNER_UID).
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Only the cafe owner's login can see all orders, change them or edit the menu.
+    // Sign-ups are switched off in Firebase, so the only login is the cafe owner's.
     function isOwner() {
-      return request.auth != null && request.auth.uid == "OWNER_UID";
+      return request.auth != null;
     }
 
     function validNewOrder() {

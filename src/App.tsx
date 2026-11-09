@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mascot, Bubble, type Mood } from "./Mascot";
 import { FoodPic } from "./FoodArt";
 import { AdminMenu } from "./AdminMenu";
-import { AdminSecurity, securityDone } from "./AdminSecurity";
 import { DEMO_PASSWORD } from "./demo-password";
 import { RESTAURANT, MENU, CATEGORIES, LINES, STATUS, BREAKING, CANCEL_REASONS, pick, type Item, type StatusId } from "./data";
 import { connectStore, session, type Store, type Order, type Cat, type MenuMeta } from "./store";
@@ -676,8 +675,7 @@ function Admin({
   onDelete: (id: string) => Promise<void>;
 }) {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [tab, setTab] = useState<"orders" | "tables" | "menu" | "security">("orders");
-  const [secOk, setSecOk] = useState(securityDone());
+  const [tab, setTab] = useState<"orders" | "tables" | "menu">("orders");
   const [filter, setFilter] = useState<StatusId | "active" | "all">("active");
   const [confirm, setConfirm] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<{ id: string; reason: string; other: string } | null>(null);
@@ -771,19 +769,13 @@ function Admin({
         <div><b>{rs(sales)}</b><span>sales today</span></div>
       </div>
 
-      <div className="seg seg-4" role="tablist">
-        {(["orders", "tables", "menu", "security"] as const).map((t) => (
+      <div className="seg seg-3" role="tablist">
+        {(["orders", "tables", "menu"] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)} type="button" id={`tab-${t}`}>
-            {t === "orders" ? "Orders" : t === "tables" ? "Tables" : t === "menu" ? "Menu" : "Security"}
-            {t === "security" && store.adminAuth && !secOk && <i className="tab-dot" aria-label="needs setup" />}
+            {t === "orders" ? "Orders" : t === "tables" ? "Tables" : "Menu"}
           </button>
         ))}
       </div>
-      {store.adminAuth && !secOk && tab !== "security" && (
-        <button className="sec-nudge" type="button" onClick={() => setTab("security")}>
-          <b>Finish security setup</b> · 2 quick steps so only you can see customer details →
-        </button>
-      )}
 
       {tab === "orders" && (
         <>
@@ -899,8 +891,6 @@ function Admin({
           <p className="fine span-all">Amount = everything that table ordered today. Collect it at the counter.</p>
         </div>
       )}
-
-      {tab === "security" && <AdminSecurity uid={store.adminAuth?.uid() ?? null} onChange={() => setSecOk(securityDone())} />}
 
       {tab === "menu" && (
         <AdminMenu items={items} cats={cats} soldOut={soldOut} onToggleSold={toggleSold} onSave={onSave} onDelete={onDelete} />
