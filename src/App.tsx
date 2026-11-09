@@ -8,6 +8,16 @@ import { connectStore, session, type Store, type Order, type Cat, type MenuMeta 
 type Screen = "home" | "who" | "menu" | "status" | "adminLogin" | "admin";
 type Diner = { kind: "guest" | "customer"; name: string; phone: string; table: number };
 
+// table number from the QR code on the table: ...?t=5
+const qrTable = (): number => {
+  try {
+    const n = Number(new URLSearchParams(location.search).get("t"));
+    return Number.isInteger(n) && n >= 1 && n <= RESTAURANT.tables ? n : 0;
+  } catch {
+    return 0;
+  }
+};
+
 const rs = (n: number) => `${RESTAURANT.currency} ${n.toLocaleString("en-IN")}`;
 const ago = (t: number) => {
   const m = Math.floor((Date.now() - t) / 60000);
@@ -100,7 +110,7 @@ function Home({ go, say, mood, poke, bump }: { go: (s: Screen) => void; say: str
         <button className="door door-eat" onClick={() => go("who")} id="btn-customer">
           <span className="door-kicker">Customer</span>
           <span className="door-title">I'm Hungry</span>
-          <span className="door-sub">Guest or regular. Pick a table, start ordering.</span>
+          <span className="door-sub">{qrTable() ? `You're at Table ${qrTable()}. Tap here and start ordering.` : "Guest or regular. Pick a table, start ordering."}</span>
         </button>
         <button className="door door-boss" onClick={() => go("adminLogin")} id="btn-admin">
           <span className="door-kicker">Admin</span>
@@ -144,7 +154,7 @@ function WhoAreYou({ onDone, back, setSay }: { onDone: (d: Diner) => void; back:
   const [kind, setKind] = useState<"guest" | "customer">(saved?.kind || "customer");
   const [name, setName] = useState(saved?.name || "");
   const [phone, setPhone] = useState(saved?.phone || "");
-  const [table, setTable] = useState(0);
+  const [table, setTable] = useState(qrTable());
   const [err, setErr] = useState("");
 
   const switchKind = (k: "guest" | "customer") => {
@@ -731,7 +741,16 @@ function Admin({
 export default function App() {
   const [store, setStore] = useState<Store | null>(null);
   const [screen, setScreen] = useState<Screen>(() => (session.get("admin", false) ? "admin" : session.get<Diner | null>("diner", null) ? "menu" : "home"));
-  const [diner, setDiner] = useState<Diner | null>(() => session.get<Diner | null>("diner", null));
+  const [diner, setDiner] = useState<Diner | null>(() => {
+    const d = session.get<Diner | null>("diner", null);
+    const t = qrTable();
+    if (d && t && d.table !== t) {
+      const moved = { ...d, table: t };
+      session.set("diner", moved);
+      return moved;
+    }
+    return d;
+  });
   const [myOrders, setMyOrders] = useState<string[]>(() => session.get<string[]>("orders", []));
   const [justSent, setJustSent] = useState(false);
   const [soldOut, setSoldOut] = useState<string[]>([]);
