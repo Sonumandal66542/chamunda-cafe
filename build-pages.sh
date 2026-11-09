@@ -5,7 +5,9 @@ cd "$(dirname "$0")"
 PAGES_BASE=/chamunda-cafe/ npx vite build
 python3 - <<'PY'
 p='dist/index.html'; s=open(p).read()
-extra=('<meta name="description" content="Chamunda Cafe — order parathas from your table. Diet starts tomorrow." />\n'
+extra=('<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com; font-src \'self\' https://fonts.gstatic.com; img-src \'self\' data: blob:; connect-src \'self\' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com; frame-src https://chamunda-cafe.firebaseapp.com; object-src \'none\'; base-uri \'self\'; form-action \'self\'" />\n'
+ '<meta name="referrer" content="strict-origin-when-cross-origin" />\n'
+ '<meta name="description" content="Chamunda Cafe — order parathas from your table. Diet starts tomorrow." />\n'
  '<meta name="theme-color" content="#ffc93c" />\n'
  '<link rel="icon" type="image/svg+xml" href="/chamunda-cafe/favicon.svg" />\n'
  '<link rel="preconnect" href="https://fonts.googleapis.com" />\n<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />\n'

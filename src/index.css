@@ -390,9 +390,16 @@ input:not([type="checkbox"]) {
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--ink); color: var(--paper); border-radius: 12px; overflow: hidden; }
 .stats div { display: grid; padding: 10px 8px; gap: 2px; border-right: 1px solid rgba(255,247,226,.2); min-width: 0; }
 .stats div:last-child { border-right: 0; }
-.stats b { font-family: var(--font-display); font-weight: 400; font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--butter); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stats b { font-family: var(--font-display); font-weight: 400; font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--butter); overflow-wrap: anywhere; }
 .stats span { font-size: 11px; font-family: var(--font-mono); opacity: 0.8; }
-@media (max-width: 400px) { .stats b { font-size: 16px; } }
+/* phones: 2 x 2 so big sales numbers fit */
+@media (max-width: 560px) {
+  .stats { grid-template-columns: 1fr 1fr; }
+  .stats div { border-right: 0; }
+  .stats div:nth-child(odd) { border-right: 1px solid rgba(255,247,226,.2); }
+  .stats div:nth-child(-n+2) { border-bottom: 1px solid rgba(255,247,226,.2); }
+  .stats b { font-size: 22px; }
+}
 .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 .chips button { flex: none; border: 2px solid var(--ink); background: var(--paper); border-radius: 999px; padding: 3px 10px; font-weight: 700; font-size: 14px; display: flex; gap: 6px; align-items: center; }
 .chips button small { font-family: var(--font-mono); font-size: 11px; background: var(--ink); color: var(--paper); border-radius: 999px; padding: 0 6px; }
@@ -584,3 +591,27 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .cancel-panel b { font-size: 14px; }
 .cancel-panel .chips button { font-size: 13px; }
 .cancel-panel input { font-size: 15px; padding: 8px 10px; }
+
+/* ---------- security tab ---------- */
+.seg-4 { grid-template-columns: repeat(4, 1fr); margin-bottom: 12px; }
+.seg-4 button { font-size: 14px; padding: 10px 2px; position: relative; }
+.tab-dot { position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--chilli); border: 1.5px solid var(--paper); }
+.sec-nudge {
+  display: block; width: 100%; text-align: left; border: 2px solid var(--ink); border-radius: 10px;
+  background: var(--butter); padding: 8px 12px; font-size: 14px; margin: -4px 0 4px;
+}
+.sec { display: grid; gap: 12px; }
+.sec-step { background: var(--paper); border: 3px solid var(--ink); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; box-shadow: var(--shadow-sm); }
+.sec-step.done { border-color: var(--chutney); }
+.sec-step h4 { margin: 0; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+.sec-step h4 span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: var(--butter); font-family: var(--font-display); font-size: 14px; }
+.sec-step.done h4 span { background: var(--chutney); color: #fff; }
+.sec-step p, .sec-step ol, .sec-step ul { margin: 0; font-size: 14px; }
+.sec-step ol, .sec-step ul { padding-left: 20px; display: grid; gap: 4px; }
+.sec-step .cta.small { justify-self: start; }
+.sec-step .ghost.small { justify-self: start; }
+.sec-uid { margin: 0; overflow-wrap: anywhere; background: #fff; border: 2px dashed var(--ink); border-radius: 8px; padding: 4px 8px; }
+.sec-rules { font-family: var(--font-mono); font-size: 11px; white-space: pre; overflow: auto; }
+.sec-check { display: flex; align-items: center; gap: 8px; font-weight: 800; cursor: pointer; }
+.sec-check input { width: 20px; height: 20px; accent-color: var(--chutney); }
+.price-warn { margin: 0; background: #fff3d6; border: 2px solid #e08a00; border-radius: 8px; padding: 6px 8px; font-size: 14px; font-weight: 700; }

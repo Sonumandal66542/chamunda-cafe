@@ -14,7 +14,7 @@ export default defineConfig({
             "./firebaseStore": path.resolve(__dirname, "./src/firebaseStub.ts"),
             "./firebase-config": path.resolve(__dirname, "./src/firebase-config.none.ts"),
           }
-        : {}),
+        : { "./demo-password": path.resolve(__dirname, "./src/demo-password.none.ts") }),
     },
   },
 });

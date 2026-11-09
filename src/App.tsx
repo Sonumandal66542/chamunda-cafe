@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mascot, Bubble, type Mood } from "./Mascot";
 import { FoodPic } from "./FoodArt";
 import { AdminMenu } from "./AdminMenu";
+import { AdminSecurity, securityDone } from "./AdminSecurity";
+import { DEMO_PASSWORD } from "./demo-password";
 import { RESTAURANT, MENU, CATEGORIES, LINES, STATUS, BREAKING, CANCEL_REASONS, pick, type Item, type StatusId } from "./data";
 import { connectStore, session, type Store, type Order, type Cat, type MenuMeta } from "./store";
 
@@ -104,7 +106,11 @@ function Spice({ n = 0 }: { n?: number }) {
 /*  Screens                                                            */
 /* ------------------------------------------------------------------ */
 
-function Home({ go, say, mood, poke, bump }: { go: (s: Screen) => void; say: string; mood: Mood; poke: () => void; bump: number }) {
+function Home({
+  say, mood, poke, bump, eat, boss, seatedAt, bossIn,
+}: {
+  say: string; mood: Mood; poke: () => void; bump: number; eat: () => void; boss: () => void; seatedAt: number; bossIn: boolean;
+}) {
   return (
     <main className="home">
       <div className="hero">
@@ -121,15 +127,15 @@ function Home({ go, say, mood, poke, bump }: { go: (s: Screen) => void; say: str
       </div>
 
       <div className="doors">
-        <button className="door door-eat" onClick={() => go("who")} id="btn-customer">
+        <button className="door door-eat" onClick={eat} id="btn-customer">
           <span className="door-kicker">Customer</span>
           <span className="door-title">I'm Hungry</span>
-          <span className="door-sub">{qrTable() ? `You're at Table ${qrTable()}. Tap here and start ordering.` : "Guest or regular. Pick a table, start ordering."}</span>
+          <span className="door-sub">{seatedAt ? `Back to the menu for Table ${seatedAt}.` : qrTable() ? `You're at Table ${qrTable()}. Tap here and start ordering.` : "Guest or regular. Pick a table, start ordering."}</span>
         </button>
-        <button className="door door-boss" onClick={() => go("adminLogin")} id="btn-admin">
+        <button className="door door-boss" onClick={boss} id="btn-admin">
           <span className="door-kicker">Admin</span>
           <span className="door-title">Kitchen Boss</span>
-          <span className="door-sub">Staff only. Uncles, please sit down.</span>
+          <span className="door-sub">{bossIn ? "You're logged in. Back to the control room." : "Staff only. Uncles, please sit down."}</span>
         </button>
       </div>
 
@@ -448,6 +454,26 @@ function MenuScreen({
   );
 }
 
+// Order prices come from the customer's phone, so compare them with the menu.
+// Returns what looks wrong (and the menu total), or null when the bill is fine.
+function billCheck(o: Order, menu: Item[]): { why: string; menuTotal: number } | null {
+  let menuTotal = 0;
+  let sum = 0;
+  let priceOdd = false;
+  let qtyOdd = false;
+  for (const l of o.items) {
+    if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > 50) qtyOdd = true;
+    const m = menu.find((x) => x.id === l.id);
+    if (m && m.price !== l.price) priceOdd = true;
+    sum += l.qty * l.price;
+    menuTotal += l.qty * (m ? m.price : l.price);
+  }
+  if (sum !== o.total) priceOdd = true;
+  if (priceOdd) return { why: "this order's prices don't match your menu", menuTotal };
+  if (qtyOdd) return { why: "this order has an unusually large quantity", menuTotal };
+  return null;
+}
+
 function Steps({ status }: { status: StatusId }) {
   const i = STATUS.findIndex((x) => x.id === status);
   return (
@@ -609,7 +635,7 @@ function AdminLogin({ back, ok, onSay, store }: { back: () => void; ok: () => vo
       return;
     }
     const norm = (x: string) => x.replace(/\s+/g, "").toLowerCase();
-    if (norm(pw) === norm(RESTAURANT.adminPassword)) {
+    if (DEMO_PASSWORD && norm(pw) === norm(DEMO_PASSWORD)) {
       session.set("admin", true);
       ok();
     } else fail(pick(LINES.wrongPass));
@@ -650,7 +676,8 @@ function Admin({
   onDelete: (id: string) => Promise<void>;
 }) {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [tab, setTab] = useState<"orders" | "tables" | "menu">("orders");
+  const [tab, setTab] = useState<"orders" | "tables" | "menu" | "security">("orders");
+  const [secOk, setSecOk] = useState(securityDone());
   const [filter, setFilter] = useState<StatusId | "active" | "all">("active");
   const [confirm, setConfirm] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<{ id: string; reason: string; other: string } | null>(null);
@@ -744,13 +771,19 @@ function Admin({
         <div><b>{rs(sales)}</b><span>sales today</span></div>
       </div>
 
-      <div className="seg seg-3" role="tablist">
-        {(["orders", "tables", "menu"] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)} type="button">
-            {t === "orders" ? "Orders" : t === "tables" ? "Tables" : "Menu"}
+      <div className="seg seg-4" role="tablist">
+        {(["orders", "tables", "menu", "security"] as const).map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)} type="button" id={`tab-${t}`}>
+            {t === "orders" ? "Orders" : t === "tables" ? "Tables" : t === "menu" ? "Menu" : "Security"}
+            {t === "security" && store.adminAuth && !secOk && <i className="tab-dot" aria-label="needs setup" />}
           </button>
         ))}
       </div>
+      {store.adminAuth && !secOk && tab !== "security" && (
+        <button className="sec-nudge" type="button" onClick={() => setTab("security")}>
+          <b>Finish security setup</b> · 2 quick steps so only you can see customer details →
+        </button>
+      )}
 
       {tab === "orders" && (
         <>
@@ -790,6 +823,14 @@ function Admin({
                   <li className="mini-total"><span>Total</span><span>{rs(o.total)}</span></li>
                 </ul>
                 {o.note && <p className="chef-note">Note: {o.note}</p>}
+                {(() => {
+                  const chk = billCheck(o, items);
+                  return chk === null ? null : (
+                    <p className="price-warn" role="alert">
+                      ⚠ Check the bill: {chk.why}. Menu total is <b>{rs(chk.menuTotal)}</b>.
+                    </p>
+                  );
+                })()}
                 {o.status === "cancelled" && (
                   <p className="cancel-note">
                     Cancelled{o.cancelledAt ? ` ${whenOf(o.cancelledAt)}` : ""}{o.cancelReason ? ` · ${o.cancelReason}` : ""}
@@ -824,9 +865,11 @@ function Admin({
                       </>
                     ) : (
                       <>
-                        <button className="ghost small" onClick={() => setCancelling({ id: o.id, reason: CANCEL_REASONS[0], other: "" })} type="button" id={`cancel-${o.id}`}>Cancel</button>
-                        {o.status !== "served" && (
-                          <button className="cta small" onClick={() => next(o)} type="button">{nextLabel[o.status]}</button>
+                        {isOpen(o.status) && (
+                          <>
+                            <button className="ghost small" onClick={() => setCancelling({ id: o.id, reason: CANCEL_REASONS[0], other: "" })} type="button" id={`cancel-${o.id}`}>Cancel</button>
+                            <button className="cta small" onClick={() => next(o)} type="button">{nextLabel[o.status]}</button>
+                          </>
                         )}
                       </>
                     )}
@@ -856,6 +899,8 @@ function Admin({
           <p className="fine span-all">Amount = everything that table ordered today. Collect it at the counter.</p>
         </div>
       )}
+
+      {tab === "security" && <AdminSecurity uid={store.adminAuth?.uid() ?? null} onChange={() => setSecOk(securityDone())} />}
 
       {tab === "menu" && (
         <AdminMenu items={items} cats={cats} soldOut={soldOut} onToggleSold={toggleSold} onSave={onSave} onDelete={onDelete} />
@@ -1004,6 +1049,7 @@ export default function App() {
   // with a real login, the admin screen follows the signed-in state
   const [adminOk, setAdminOk] = useState<boolean | null>(null);
   useEffect(() => (store?.adminAuth ? store.adminAuth.onUser(setAdminOk) : undefined), [store]);
+  const bossIn = session.get("admin", false) && (!store?.adminAuth || adminOk === true);
   useEffect(() => {
     if (store?.adminAuth && adminOk === false && screen === "admin") {
       session.clear("admin");
@@ -1065,11 +1111,11 @@ export default function App() {
     <div className="app">
       <Ticker />
       <header className="topbar">
-        <button className="logo" onClick={() => (screen === "admin" ? null : screen === "menu" || screen === "status" ? null : go("home"))} type="button" aria-label="Home">
+        <button className="logo" onClick={() => { setExitAsk(false); go("home"); }} type="button" aria-label="Go to home page" id="btn-logo">
           <Mascot mood="wink" size={34} />
           <span>{RESTAURANT.name}</span>
         </button>
-        {diner && (screen === "menu" || screen === "status") && (
+        {diner && (screen === "menu" || screen === "status" || screen === "home") && (
           <div className="who-chip">
             <span>T{diner.table} · {diner.kind === "guest" ? "Guest" : diner.name.split(" ")[0]}</span>
             {exitAsk ? (
@@ -1095,7 +1141,16 @@ export default function App() {
       )}
 
       {screen === "home" && (
-        <Home go={go} say={say} mood={mood} bump={bump} poke={() => speak(pick(LINES.poke), Math.random() > 0.5 ? "shock" : "wink")} />
+        <Home
+          say={say}
+          mood={mood}
+          bump={bump}
+          poke={() => speak(pick(LINES.poke), Math.random() > 0.5 ? "shock" : "wink")}
+          seatedAt={diner?.table || 0}
+          bossIn={bossIn}
+          eat={() => (diner ? setScreen("menu") : go("who"))}
+          boss={() => (bossIn ? setScreen("admin") : go("adminLogin"))}
+        />
       )}
       {screen === "who" && (
         <WhoAreYou

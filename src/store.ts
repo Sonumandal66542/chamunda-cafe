@@ -46,6 +46,7 @@ export type Store = {
     signIn(email: string, pw: string): Promise<void>;
     signOut(): Promise<void>;
     onUser(cb: (signedIn: boolean) => void): () => void;
+    uid(): string | null;
   };
 };
 

@@ -7,7 +7,6 @@ export const RESTAURANT = {
   name: "Chamunda Cafe",
   tagline: "Home of the paratha. Diet starts tomorrow.",
   tables: 8,
-  adminPassword: "TawaBoss#88",
   currency: "Rs",
 };
 

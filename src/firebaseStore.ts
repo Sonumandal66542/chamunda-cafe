@@ -83,6 +83,9 @@ export function firebaseStore(config: Record<string, string>): Store {
       async signOut() {
         await signOut(auth);
       },
+      uid() {
+        return auth.currentUser?.uid ?? null;
+      },
       onUser(cb) {
         return onAuthStateChanged(auth, (u) => cb(!!u));
       },
