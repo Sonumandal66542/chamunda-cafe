@@ -1285,7 +1285,16 @@ export default function App() {
           onClick={() => {
             setExitAsk(false);
             if (MODE === "admin") setScreen(bossIn ? "admin" : "adminLogin");
-            else go("home");
+            else if (diner) {
+              // signed-in customers go back to their menu
+              setJustSent(false);
+              setScreen("menu");
+              try {
+                window.scrollTo({ top: 0 });
+              } catch {
+                /* ignore */
+              }
+            } else go("home");
           }}
           type="button"
           aria-label="Go to home page"
