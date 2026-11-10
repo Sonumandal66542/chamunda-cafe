@@ -15,7 +15,11 @@ export type Order = {
   createdAt: number;
   cancelReason?: string;
   cancelledAt?: number;
+  device?: string; // which phone placed it (sha256 of the phone's secret key)
+  key?: string; // the phone's secret key, so the database can check the claim
 };
+// A table belongs to the phone that ordered first until the owner serves or cancels its last order.
+export type TableLock = { holder: string; since: number; lastOrder: string };
 export type Kitchen = { soldOut: string[] };
 export type Cat = { id: string; label: string };
 // seeded=false means the admin hasn't edited the menu yet: the built-in menu in data.ts is shown
@@ -32,6 +36,8 @@ export type Store = {
   onOrder(id: string, cb: (o: Order | null) => void): () => void;
   addOrder(o: Omit<Order, "id">): Promise<string>;
   setStatus(id: string, s: StatusId): Promise<void>;
+  onTables(cb: (locks: Record<string, TableLock>) => void): () => void;
+  freeTable(table: number): Promise<void>;
   cancelOrder(id: string, reason: string): Promise<void>;
   removeOrder(id: string): Promise<void>;
   onKitchen(cb: (k: Kitchen) => void): () => void;
@@ -73,7 +79,18 @@ function liveStore(db: any): Store {
     async addOrder(o) {
       const ref = orders.doc();
       await ref.set(o);
+      if (o.device) await db.doc(`tables/${o.table}`).set({ holder: o.device, since: Date.now(), lastOrder: ref.id });
       return ref.id;
+    },
+    onTables(cb) {
+      return db.collection("tables").onSnapshot(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (snap: any) => cb(Object.fromEntries(snap.docs.map((d: any) => [d.id, d.data() as TableLock]))),
+        () => {}
+      );
+    },
+    async freeTable(t) {
+      await db.doc(`tables/${t}`).set({ holder: "", since: Date.now(), lastOrder: "" });
     },
     async setStatus(id, s) {
       await orders.doc(id).update({ status: s });
@@ -143,6 +160,12 @@ function localStore(): Store {
   let kitchen: Kitchen = safeGet<Kitchen>("pp-kitchen", { soldOut: [] });
   const oSubs = new Set<(o: Order[]) => void>();
   const kSubs = new Set<(k: Kitchen) => void>();
+  let locks: Record<string, TableLock> = safeGet<Record<string, TableLock>>("pp-tables", {});
+  const tSubs = new Set<(l: Record<string, TableLock>) => void>();
+  const emitT = () => {
+    safeSet("pp-tables", locks);
+    tSubs.forEach((f) => f(locks));
+  };
   let menu: Item[] = safeGet<Item[]>("pp-menu", []);
   let meta: MenuMeta | null = safeGet<MenuMeta | null>("pp-menumeta", null);
   const mSubs = new Set<(m: Item[]) => void>();
@@ -164,8 +187,10 @@ function localStore(): Store {
     window.addEventListener("storage", () => {
       orders = safeGet<Order[]>("pp-orders", orders);
       kitchen = safeGet<Kitchen>("pp-kitchen", kitchen);
+      locks = safeGet<Record<string, TableLock>>("pp-tables", locks);
       emitO();
       emitK();
+      emitT();
     });
   } catch {
     /* ignore */
@@ -184,10 +209,23 @@ function localStore(): Store {
       return () => oSubs.delete(f);
     },
     async addOrder(o) {
+      const cur = locks[String(o.table)];
+      if (o.device && cur && cur.holder && cur.holder !== o.device) throw Object.assign(new Error("table busy"), { code: "permission-denied" });
       const id = Math.random().toString(36).slice(2, 10);
       orders = [...orders, { ...o, id }];
+      if (o.device) locks = { ...locks, [String(o.table)]: { holder: o.device, since: Date.now(), lastOrder: id } };
       emitO();
+      emitT();
       return id;
+    },
+    onTables(cb) {
+      tSubs.add(cb);
+      cb(locks);
+      return () => tSubs.delete(cb);
+    },
+    async freeTable(t) {
+      locks = { ...locks, [String(t)]: { holder: "", since: Date.now(), lastOrder: "" } };
+      emitT();
     },
     async setStatus(id, s) {
       orders = orders.map((o) => (o.id === id ? { ...o, status: s } : o));

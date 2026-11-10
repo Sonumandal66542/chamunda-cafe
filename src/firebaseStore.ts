@@ -1,10 +1,10 @@
 import { initializeApp } from "firebase/app";
 import {
-  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, setDoc,
+  getFirestore, collection, doc, updateDoc, deleteDoc, setDoc, writeBatch,
   onSnapshot, query, orderBy, limit,
 } from "firebase/firestore";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { clean, type Store, type Order, type MenuMeta } from "./store";
+import { clean, type Store, type Order, type MenuMeta, type TableLock } from "./store";
 import type { Item } from "./data";
 
 export function firebaseStore(config: Record<string, string>): Store {
@@ -30,8 +30,23 @@ export function firebaseStore(config: Record<string, string>): Store {
       );
     },
     async addOrder(o) {
-      const ref = await addDoc(orders, o);
+      // the order and the table claim are saved together, so the database rules can check both at once
+      const ref = doc(orders);
+      const batch = writeBatch(db);
+      batch.set(ref, o);
+      if (o.device) batch.set(doc(db, "tables", String(o.table)), { holder: o.device, since: Date.now(), lastOrder: ref.id });
+      await batch.commit();
       return ref.id;
+    },
+    onTables(cb) {
+      return onSnapshot(
+        collection(db, "tables"),
+        (snap) => cb(Object.fromEntries(snap.docs.map((d) => [d.id, d.data() as TableLock]))),
+        () => {}
+      );
+    },
+    async freeTable(t) {
+      await setDoc(doc(db, "tables", String(t)), { holder: "", since: Date.now(), lastOrder: "" });
     },
     async setStatus(id, s) {
       await updateDoc(doc(orders, id), { status: s });

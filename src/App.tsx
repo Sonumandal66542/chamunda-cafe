@@ -4,7 +4,12 @@ import { FoodPic } from "./FoodArt";
 import { AdminMenu } from "./AdminMenu";
 import { DEMO_PASSWORD } from "./demo-password";
 import { RESTAURANT, MENU, CATEGORIES, LINES, STATUS, BREAKING, CANCEL_REASONS, pick, type Item, type StatusId } from "./data";
-import { connectStore, session, type Store, type Order, type Cat, type MenuMeta } from "./store";
+import { connectStore, session, type Store, type Order, type Cat, type MenuMeta, type TableLock } from "./store";
+import { deviceIdentity, type Ident } from "./device";
+
+type TableState = "free" | "mine" | "busy";
+const busyMsg = (n: number) =>
+  `Table ${n} already has an order going from another phone. Ask that person to add your food from their phone, or ask the staff. The table frees up once their food is served.`;
 
 type Screen = "home" | "who" | "menu" | "status" | "adminLogin" | "admin";
 type Diner = { kind: "guest" | "customer"; name: string; phone: string; table: number };
@@ -157,27 +162,36 @@ function Home({
   );
 }
 
-function TablePicker({ value, onPick }: { value: number; onPick: (n: number) => void }) {
+function TablePicker({ value, onPick, stateOf }: { value: number; onPick: (n: number) => void; stateOf: (n: number) => TableState }) {
   return (
     <div className="tables" role="radiogroup" aria-label="Table number">
-      {Array.from({ length: RESTAURANT.tables }, (_, i) => i + 1).map((n) => (
-        <button
-          key={n}
-          id={`table-${n}`}
-          role="radio"
-          aria-checked={value === n}
-          className={`plate ${value === n ? "on" : ""}`}
-          onClick={() => onPick(n)}
-          type="button"
-        >
-          <span>{n}</span>
-        </button>
-      ))}
+      {Array.from({ length: RESTAURANT.tables }, (_, i) => i + 1).map((n) => {
+        const st = stateOf(n);
+        return (
+          <button
+            key={n}
+            id={`table-${n}`}
+            role="radio"
+            aria-checked={value === n}
+            aria-disabled={st === "busy"}
+            className={`plate ${value === n ? "on" : ""} ${st}`}
+            onClick={() => onPick(n)}
+            type="button"
+          >
+            <span>{n}</span>
+            {st !== "free" && <small>{st === "busy" ? "in use" : "yours"}</small>}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-function WhoAreYou({ onDone, back, setSay }: { onDone: (d: Diner) => void; back: () => void; setSay: (s: string, m?: Mood) => void }) {
+function WhoAreYou({
+  onDone, back, setSay, stateOf,
+}: {
+  onDone: (d: Diner) => void; back: () => void; setSay: (s: string, m?: Mood) => void; stateOf: (n: number) => TableState;
+}) {
   const saved = session.get<Diner | null>("lastDiner", null);
   const [kind, setKind] = useState<"guest" | "customer">(saved?.kind || "customer");
   const [name, setName] = useState(saved?.name || "");
@@ -200,6 +214,7 @@ function WhoAreYou({ onDone, back, setSay }: { onDone: (d: Diner) => void; back:
         return setErr(`Phone numbers here have 10 digits starting with 9. Yours has ${digits.length}. Suspicious.`);
     }
     if (!table) return setErr("Which table? We can't throw parathas randomly. Pick one.");
+    if (stateOf(table) === "busy") return setErr(busyMsg(table));
     const d: Diner = { kind, name: kind === "guest" ? "" : name.trim(), phone: kind === "guest" ? "" : digits, table };
     session.set("lastDiner", d);
     onDone(d);
@@ -236,7 +251,21 @@ function WhoAreYou({ onDone, back, setSay }: { onDone: (d: Diner) => void; back:
         )}
 
         <label>Your table</label>
-        <TablePicker value={table} onPick={(n) => { setTable(n); setErr(""); setSay(`Table ${n}! Good seat. Butter reaches there fastest.`, "happy"); }} />
+        <TablePicker
+          value={table}
+          stateOf={stateOf}
+          onPick={(n) => {
+            if (stateOf(n) === "busy") {
+              setErr(busyMsg(n));
+              setSay(`Table ${n} is taken by another phone. Ask them to add your food!`, "shock");
+              return;
+            }
+            setTable(n);
+            setErr("");
+            setSay(stateOf(n) === "mine" ? `Table ${n} again! Add-ons coming up.` : `Table ${n}! Good seat. Butter reaches there fastest.`, "happy");
+          }}
+        />
+        {table > 0 && stateOf(table) === "busy" && !err && <p className="err" role="alert">{busyMsg(table)}</p>}
 
         {err && <p className="err" role="alert">{err}</p>}
         <button className="cta" type="submit" id="btn-start">Show me the menu →</button>
@@ -246,8 +275,11 @@ function WhoAreYou({ onDone, back, setSay }: { onDone: (d: Diner) => void; back:
 }
 
 function MenuScreen({
-  diner, store, soldOut, onOrdered, onSay, addFx, items, cats,
+  diner, store, soldOut, onOrdered, onSay, addFx, items, cats, ident, tableBusy, changeTable,
 }: {
+  ident: Ident | null;
+  tableBusy: boolean;
+  changeTable: () => void;
   diner: Diner;
   store: Store;
   soldOut: string[];
@@ -315,6 +347,8 @@ function MenuScreen({
 
   const send = async () => {
     if (!lines.length) return;
+    if (tableBusy) return setSendErr(busyMsg(diner.table));
+    if (!ident) return setSendErr("This browser can't place orders. Open the link in Chrome or Safari and try again.");
     // ask now (while the tap counts) so we can alert them if the cafe cancels or the food is ready
     try {
       if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
@@ -334,6 +368,8 @@ function MenuScreen({
         total,
         status: "new",
         createdAt: Date.now(),
+        device: ident!.id,
+        key: ident!.key,
       });
       // save the empty cart right away: this screen closes before its save-on-change effect would run
       session.set("cart", {});
@@ -341,8 +377,13 @@ function MenuScreen({
       setNote("");
       setOpen(false);
       onOrdered(id);
-    } catch {
-      setSendErr("The order didn't reach the kitchen. Check your internet and tap Send again, or wave at the staff.");
+    } catch (er) {
+      const code = String((er as { code?: string })?.code || "");
+      setSendErr(
+        code.includes("permission")
+          ? busyMsg(diner.table)
+          : "The order didn't reach the kitchen. Check your internet and tap Send again, or wave at the staff."
+      );
     } finally {
       setSending(false);
     }
@@ -357,6 +398,14 @@ function MenuScreen({
           </button>
         ))}
       </nav>
+
+      {tableBusy && (
+        <div className="busy-banner" role="alert">
+          <b>Table {diner.table} is ordering from another phone</b>
+          <span>{busyMsg(diner.table)}</span>
+          <button type="button" className="ghost small" onClick={changeTable}>Change my table</button>
+        </div>
+      )}
 
       {specials.length > 0 && (
         <section className="specials" aria-label="Today's specials">
@@ -673,8 +722,9 @@ function AdminLogin({ back, ok, onSay, store }: { back?: () => void; ok: () => v
 }
 
 function Admin({
-  store, soldOut, logout, items, cats, onSave, onDelete,
+  store, soldOut, logout, items, cats, onSave, onDelete, locks,
 }: {
+  locks: Record<string, TableLock>;
   store: Store;
   soldOut: string[];
   logout: () => void;
@@ -741,13 +791,27 @@ function Admin({
 
   const next = (o: Order) => {
     const i = STATUS.findIndex((s) => s.id === o.status);
-    if (i >= 0 && i < STATUS.length - 1) store.setStatus(o.id, STATUS[i + 1].id).catch(() => setActErr("Couldn't update. Check the internet and try again."));
+    if (i >= 0 && i < STATUS.length - 1) {
+      const to = STATUS[i + 1].id;
+      store
+        .setStatus(o.id, to)
+        .then(() => (to === "served" ? releaseIfDone(o.table, o.id) : undefined))
+        .catch(() => setActErr("Couldn't update. Check the internet and try again."));
+    }
   };
+  // the phone that ordered first keeps the table until its last open order is served or cancelled
+  const releaseIfDone = async (table: number, closedId: string) => {
+    const stillOpen = orders.some((x) => x.table === table && x.id !== closedId && isOpen(x.status));
+    if (!stillOpen && locks[String(table)]?.holder) await store.freeTable(table).catch(() => {});
+  };
+  const [freeAsk, setFreeAsk] = useState(0);
   const doCancel = async () => {
     if (!cancelling) return;
     const reason = (cancelling.reason === "Other" ? cancelling.other.trim() : cancelling.reason).slice(0, 80);
     try {
       await store.cancelOrder(cancelling.id, reason);
+      const co = orders.find((x) => x.id === cancelling.id);
+      if (co) await releaseIfDone(co.table, co.id);
       setCancelling(null);
       setActErr("");
     } catch {
@@ -889,15 +953,39 @@ function Admin({
             const at = active.filter((o) => o.table === t);
             const bill = orders.filter((o) => o.table === t && o.createdAt >= today.getTime() && o.status !== "cancelled").reduce((s, o) => s + o.total, 0);
             const worst = at.find((o) => o.status === "new") ? "new" : at.find((o) => o.status === "cooking") ? "cooking" : at.length ? "ready" : "free";
+            const lock = locks[String(t)];
+            const held = !!lock?.holder;
             return (
-              <button key={t} className={`tbl tbl-${worst}`} onClick={() => { setTab("orders"); setFilter("all"); }} type="button">
-                <span className="tbl-n">{t}</span>
-                <span className="tbl-s">{worst === "free" ? "Free" : `${at.length} active`}</span>
-                <span className="tbl-b">{bill ? rs(bill) : "—"}</span>
-              </button>
+              <div key={t} className={`tbl tbl-${worst} ${held ? "held" : ""}`}>
+                <button type="button" className="tbl-main" onClick={() => { setTab("orders"); setFilter("all"); }}>
+                  <span className="tbl-n">{t}</span>
+                  <span className="tbl-s">{worst === "free" ? "Free" : `${at.length} active`}</span>
+                  <span className="tbl-b">{bill ? rs(bill) : "—"}</span>
+                </button>
+                {held && (
+                  <>
+                    <span className="tbl-lock">🔒 1 phone · {timeOf(lock.since)}</span>
+                    <button
+                      type="button"
+                      className={`tbl-free ${freeAsk === t ? "danger" : ""}`}
+                      onClick={() => {
+                        if (freeAsk !== t) return setFreeAsk(t);
+                        store.freeTable(t).catch(() => setActErr("Couldn't free the table. Try again."));
+                        setFreeAsk(0);
+                      }}
+                      id={`free-${t}`}
+                    >
+                      {freeAsk === t ? "Tap again" : "Free table"}
+                    </button>
+                  </>
+                )}
+              </div>
             );
           })}
-          <p className="fine span-all">Amount = everything that table ordered today. Collect it at the counter.</p>
+          <p className="fine span-all">
+            Amount = everything that table ordered today. Collect it at the counter. 🔒 means only the phone that ordered first can order for that table.
+            It frees up by itself when you serve or cancel its last order. Use <b>Free table</b> if those guests have left.
+          </p>
         </div>
       )}
 
@@ -935,6 +1023,17 @@ export default function App() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [justSent, setJustSent] = useState(false);
   const [soldOut, setSoldOut] = useState<string[]>([]);
+  const [locks, setLocks] = useState<Record<string, TableLock>>({});
+  const [ident, setIdent] = useState<Ident | null>(null);
+  useEffect(() => {
+    if (MODE === "admin") return;
+    deviceIdentity().then(setIdent).catch(() => setIdent(null));
+  }, []);
+  const stateOf = (n: number): TableState => {
+    const h = locks[String(n)]?.holder;
+    if (!h || !ident) return "free"; // until this phone's key has loaded, don't show anything as taken
+    return ident && h === ident.id ? "mine" : "busy";
+  };
   const [say, setSayText] = useState("Namaste! I'm a paratha. I can talk. Don't make it weird.");
   const [mood, setMood] = useState<Mood>("shock");
   const [bump, setBump] = useState(0);
@@ -947,6 +1046,7 @@ export default function App() {
     connectStore().then(setStore);
   }, []);
   useEffect(() => (store ? store.onKitchen((k) => setSoldOut(k.soldOut)) : undefined), [store]);
+  useEffect(() => (store ? store.onTables(setLocks) : undefined), [store]);
 
   // follow my orders live
   useEffect(() => {
@@ -1167,6 +1267,7 @@ export default function App() {
       )}
       {screen === "who" && (
         <WhoAreYou
+          stateOf={stateOf}
           back={() => go("home")}
           setSay={speak}
           onDone={(d) => {
@@ -1179,6 +1280,9 @@ export default function App() {
       )}
       {screen === "menu" && diner && store && meta !== undefined && (
         <MenuScreen
+          ident={ident}
+          tableBusy={!!diner && stateOf(diner.table) === "busy"}
+          changeTable={() => go("who")}
           items={items}
           cats={cats}
           diner={diner}
@@ -1220,7 +1324,7 @@ export default function App() {
         <AdminLogin store={store} back={MODE === "admin" ? undefined : () => go("home")} ok={() => setScreen("admin")} onSay={speak} />
       )}
       {screen === "admin" && MODE !== "customer" && store && (!store.adminAuth || adminOk) && (
-        <Admin store={store} soldOut={soldOut} items={items} cats={cats} onSave={saveFood} onDelete={deleteFood} logout={() => { store.adminAuth?.signOut().catch(() => {}); session.clear("admin"); if (MODE === "admin") setScreen("adminLogin"); else go("home"); }} />
+        <Admin store={store} soldOut={soldOut} locks={locks} items={items} cats={cats} onSave={saveFood} onDelete={deleteFood} logout={() => { store.adminAuth?.signOut().catch(() => {}); session.clear("admin"); if (MODE === "admin") setScreen("adminLogin"); else go("home"); }} />
       )}
 
       {showMini && (

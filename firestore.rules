@@ -7,9 +7,14 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function tableDoc(t) {
+      return /databases/$(database)/documents/tables/$(t);
+    }
+
+    // A new order must be sensible, and its phone must hold the table (or claim it in the same save).
     function validNewOrder() {
       let d = request.resource.data;
-      return d.keys().hasOnly(['table', 'kind', 'name', 'phone', 'items', 'note', 'total', 'status', 'createdAt'])
+      return d.keys().hasOnly(['table', 'kind', 'name', 'phone', 'items', 'note', 'total', 'status', 'createdAt', 'device', 'key'])
         && d.status == 'new'
         && d.table is int && d.table >= 1 && d.table <= 8
         && d.kind in ['guest', 'customer']
@@ -20,13 +25,35 @@ service cloud.firestore {
         && d.total is number && d.total > 0 && d.total <= 100000
         && d.createdAt is number
         && d.createdAt > request.time.toMillis() - 86400000
-        && d.createdAt < request.time.toMillis() + 86400000;
+        && d.createdAt < request.time.toMillis() + 86400000
+        && d.key is string && d.key.size() >= 20 && d.key.size() <= 64
+        && d.device is string && d.device == hashing.sha256(d.key).toHexString()
+        && getAfter(tableDoc(string(d.table))).data.holder == d.device;
+    }
+
+    // A phone can take a table only if it's free (or already theirs), and only together with an order for it.
+    function validClaim(t) {
+      let nd = request.resource.data;
+      let o = getAfter(/databases/$(database)/documents/orders/$(nd.lastOrder)).data;
+      return nd.keys().hasOnly(['holder', 'since', 'lastOrder'])
+        && nd.holder is string && nd.holder.size() == 64
+        && nd.lastOrder is string && nd.lastOrder.size() > 0
+        && nd.since is number
+        && o.device == nd.holder
+        && o.table == int(t)
+        && (resource == null || resource.data.holder == '' || resource.data.holder == nd.holder);
     }
 
     match /orders/{orderId} {
       allow get: if true;
       allow create: if validNewOrder();
       allow list, update, delete: if isOwner();
+    }
+
+    match /tables/{t} {
+      allow read: if true;
+      allow write: if isOwner();
+      allow create, update: if validClaim(t);
     }
 
     match /menu/{itemId} {
