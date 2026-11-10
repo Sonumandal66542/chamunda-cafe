@@ -14,7 +14,7 @@ const oneTableMsg = (held: number) =>
 const numberMsg =
   "This mobile number already has an open order at another table. You can order for a new table once that one is billed, or ask the staff.";
 const busyMsg = (n: number) =>
-  `Table ${n} already has an order going from another phone. Ask that person to add your food from their phone, or ask the staff. The table frees up once their food is served.`;
+  `Table ${n} is booked by another phone. Ask that person to add your food from their phone, or pick a free table. It opens up again once their bill is paid.`;
 
 type Screen = "home" | "who" | "menu" | "status" | "adminLogin" | "admin";
 type Diner = { kind: "guest" | "customer"; name: string; phone: string; table: number };
@@ -185,7 +185,7 @@ function TablePicker({ value, onPick, stateOf }: { value: number; onPick: (n: nu
             type="button"
           >
             <span>{n}</span>
-            {st !== "free" && <small>{st === "busy" ? "in use" : "yours"}</small>}
+            {st !== "free" && <small>{st === "busy" ? "booked" : "yours"}</small>}
           </button>
         );
       })}
@@ -239,6 +239,16 @@ function WhoAreYou({
 
 
         <label>Your table</label>
+        {(() => {
+          const booked = Array.from({ length: RESTAURANT.tables }, (_, i) => i + 1).filter((n) => stateOf(n) === "busy");
+          return (
+            <p className="booked-line" id="booked-line">
+              {booked.length === 0
+                ? "All tables are free right now."
+                : `Booked right now: ${booked.map((n) => `Table ${n}`).join(", ")}. Pick any other table.`}
+            </p>
+          );
+        })()}
         <TablePicker
           value={table}
           stateOf={stateOf}
@@ -401,7 +411,7 @@ function MenuScreen({
 
       {tableBusy && (
         <div className="busy-banner" role="alert">
-          <b>Table {diner.table} is ordering from another phone</b>
+          <b>Table {diner.table} is booked by another phone</b>
           <span>{busyMsg(diner.table)}</span>
           <button type="button" className="ghost small" onClick={changeTable}>Change my table</button>
         </div>

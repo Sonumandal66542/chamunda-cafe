@@ -671,3 +671,4 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .alert-billed { background: var(--sky); color: #fff; }
 /* never let the mascot's speech bubble cover an error message */
 .app:has(.err) .mini-mascot .bubble { display: none; }
+.booked-line { margin: 2px 0 6px; font-size: 14px; font-weight: 700; }
