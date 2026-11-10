@@ -20,7 +20,13 @@ open(p,'w').write(cust)
 import os
 os.makedirs('dist/kitchen-boss', exist_ok=True)
 boss=(s.replace('<div id="root"></div>','<div id="root" data-mode="admin"></div>')
-       .replace('<title>Chamunda Cafe</title>','<title>Chamunda Cafe · Kitchen</title>\n<meta name="robots" content="noindex, nofollow" />'))
+       .replace('<title>Chamunda Cafe</title>','<title>Chamunda Cafe · Kitchen</title>\n<meta name="robots" content="noindex, nofollow" />'
+                '\n<link rel="manifest" href="/chamunda-cafe/kitchen-boss/manifest.webmanifest" />'
+                '\n<link rel="apple-touch-icon" href="/chamunda-cafe/kitchen-boss/apple-touch-icon.png" />'
+                '\n<meta name="apple-mobile-web-app-capable" content="yes" />'
+                '\n<meta name="mobile-web-app-capable" content="yes" />'
+                '\n<meta name="apple-mobile-web-app-title" content="Kitchen" />')
+       .replace('href="/chamunda-cafe/favicon.svg"','href="/chamunda-cafe/kitchen-boss/icon-192.png"'))
 open('dist/kitchen-boss/index.html','w').write(boss)
 PY
 touch dist/.nojekyll

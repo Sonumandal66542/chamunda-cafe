@@ -6,6 +6,7 @@ import { DEMO_PASSWORD } from "./demo-password";
 import { RESTAURANT, MENU, CATEGORIES, LINES, STATUS, BREAKING, CANCEL_REASONS, pick, type Item, type StatusId } from "./data";
 import { connectStore, session, type Store, type Order, type Cat, type MenuMeta, type TableLock } from "./store";
 import { deviceIdentity, type Ident } from "./device";
+import { CounterBar, AlarmOverlay, useUnseen, useAlarm } from "./CounterMode";
 
 type TableState = "free" | "mine" | "busy";
 const busyMsg = (n: number) =>
@@ -756,28 +757,15 @@ function Admin({
       const nu = orders.filter((o) => !seen.current!.has(o.id)).map((o) => o.id);
       if (nu.length) {
         setFresh(nu);
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
-          const ac = new AC();
-          [880, 1320].forEach((f, i) => {
-            const o = ac.createOscillator();
-            const g = ac.createGain();
-            o.frequency.value = f;
-            g.gain.setValueAtTime(0.15, ac.currentTime + i * 0.15);
-            g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + i * 0.15 + 0.3);
-            o.connect(g).connect(ac.destination);
-            o.start(ac.currentTime + i * 0.15);
-            o.stop(ac.currentTime + i * 0.15 + 0.3);
-          });
-        } catch {
-          /* no sound, fine */
-        }
         setTimeout(() => setFresh([]), 4000);
       }
     }
     seen.current = ids;
   }, [orders]);
+
+  // counter mode: ring until someone taps Seen
+  const { unseen, ack } = useUnseen(orders);
+  useAlarm(unseen);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -834,6 +822,8 @@ function Admin({
         </div>
         <button className="ghost small" onClick={logout} type="button">Log out</button>
       </header>
+      <CounterBar />
+      {unseen.length > 0 && <AlarmOverlay orders={unseen} onSeen={() => ack(unseen.map((o) => o.id))} />}
 
       <div className="stats">
         <div><b>{active.filter((o) => o.status === "new").length}</b><span>new</span></div>
@@ -1044,6 +1034,16 @@ export default function App() {
 
   useEffect(() => {
     connectStore().then(setStore);
+  }, []);
+  useEffect(() => {
+    if (MODE !== "admin") return;
+    try {
+      navigator.serviceWorker
+        ?.register(`${import.meta.env.BASE_URL}kitchen-boss/sw.js`, { scope: `${import.meta.env.BASE_URL}kitchen-boss/` })
+        .catch(() => {});
+    } catch {
+      /* not supported */
+    }
   }, []);
   useEffect(() => (store ? store.onKitchen((k) => setSoldOut(k.soldOut)) : undefined), [store]);
   useEffect(() => (store ? store.onTables(setLocks) : undefined), [store]);
