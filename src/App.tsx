@@ -435,11 +435,15 @@ function MenuScreen({
         </section>
       )}
 
-      <div className="menu-card">
+      <div className="menu-list">
         {shown.length === 0 && <p className="menu-end">The menu is empty right now. Ask the staff, they'll sort you out.</p>}
         {shown.map((c) => (
-          <section key={c.id} ref={(el) => { secRefs.current[c.id] = el; }} className="menu-sec" id={`sec-${c.id}`}>
-            <h3>{c.label}</h3>
+          <section key={c.id} ref={(el) => { secRefs.current[c.id] = el; }} className={`menu-sec menu-card cat-${c.id}`} id={`sec-${c.id}`}>
+            <h3>
+              {c.label}
+              <small>{inCat(c.id).length} {inCat(c.id).length === 1 ? "item" : "items"}</small>
+            </h3>
+            <div className="sec-body">
             {inCat(c.id).map((it) => {
               const out = soldOut.includes(it.id);
               return (
@@ -463,6 +467,7 @@ function MenuScreen({
                 </article>
               );
             })}
+            </div>
           </section>
         ))}
         <p className="menu-end">That's the whole menu. Scroll up and order more. We'll wait.</p>

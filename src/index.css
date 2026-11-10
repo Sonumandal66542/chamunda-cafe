@@ -237,16 +237,26 @@ input:not([type="checkbox"]) {
 }
 .cats button.on { background: var(--ink); color: var(--butter); }
 
+/* one card per menu section, each with a header strip in its picture colour */
+.menu-list { display: grid; gap: 18px; margin-top: 14px; }
 .menu-card {
-  margin-top: 14px; background: var(--paper); border: 3px solid var(--ink); border-radius: 16px;
-  box-shadow: var(--shadow); padding: 4px 14px 14px;
+  background: var(--paper); border: 3px solid var(--ink); border-radius: 16px;
+  box-shadow: var(--shadow); overflow: hidden;
 }
 .menu-sec { scroll-margin-top: 120px; }
 .menu-sec h3 {
-  font-family: var(--font-display); font-weight: 400; font-size: 22px; margin: 16px 0 4px;
-  display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-display); font-weight: 400; font-size: 22px; margin: 0; padding: 10px 14px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--tint-paratha); border-bottom: 3px solid var(--ink);
 }
-.menu-sec h3::after { content: ""; flex: 1; border-top: 3px double var(--ink); }
+.menu-sec h3 small {
+  font-family: var(--font-mono); font-size: 12px; background: var(--ink); color: var(--butter);
+  border-radius: 999px; padding: 2px 9px; white-space: nowrap;
+}
+.menu-sec.cat-burger h3 { background: var(--tint-burger); }
+.menu-sec.cat-snacks h3 { background: var(--tint-snacks); }
+.menu-sec.cat-drinks h3 { background: var(--tint-drinks); }
+.sec-body { padding: 0 14px 4px; }
 .dish {
   position: relative; display: grid; grid-template-columns: 92px 1fr; gap: 12px; align-items: start;
   padding: 14px 0; border-bottom: 2px dashed rgba(42, 20, 6, 0.25);
