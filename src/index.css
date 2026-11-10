@@ -663,3 +663,9 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .alarm-seen:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 var(--ink); }
 .alarm-hint { margin: 0; font-size: 13px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .alarm { animation: none; } }
+.guest-tag { margin-left: 6px; font-size: 11px; font-family: var(--font-mono); font-weight: 500; background: var(--ink); color: var(--butter); border-radius: 999px; padding: 0 6px; vertical-align: middle; }
+.cta.small.bill { background: var(--sky); }
+.ghost.small.danger-outline { border-color: var(--chilli); color: var(--chilli); }
+.tbl-bill { display: block; width: 100%; border: 0; border-top: 2px solid var(--ink); background: var(--sky); color: #fff; font-size: 12px; font-weight: 800; padding: 6px 2px; }
+.alert-accepted { background: var(--chutney); color: #fff; }
+.alert-billed { background: var(--sky); color: #fff; }

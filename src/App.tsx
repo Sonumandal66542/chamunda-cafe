@@ -3,7 +3,7 @@ import { Mascot, Bubble, type Mood } from "./Mascot";
 import { FoodPic } from "./FoodArt";
 import { AdminMenu } from "./AdminMenu";
 import { DEMO_PASSWORD } from "./demo-password";
-import { RESTAURANT, MENU, CATEGORIES, LINES, STATUS, BREAKING, CANCEL_REASONS, pick, type Item, type StatusId } from "./data";
+import { RESTAURANT, MENU, CATEGORIES, LINES, STATUS, BREAKING, CANCEL_REASONS, normStatus, pick, type Item, type StatusId } from "./data";
 import { connectStore, session, type Store, type Order, type Cat, type MenuMeta, type TableLock } from "./store";
 import { deviceIdentity, type Ident } from "./device";
 import { CounterBar, AlarmOverlay, useUnseen, useAlarm } from "./CounterMode";
@@ -44,7 +44,8 @@ const dayOf = (t: number) => {
 };
 const whenOf = (t: number) => `${dayOf(t)}, ${timeOf(t)}`;
 const statusLabel = (s: StatusId) => (s === "cancelled" ? "Cancelled" : STATUS.find((x) => x.id === s)?.short || s);
-const isOpen = (s: StatusId) => s !== "served" && s !== "cancelled";
+const isOpen = (s: StatusId) => s !== "billed" && s !== "cancelled";
+const normOrder = (o: Order): Order => ({ ...o, status: normStatus(o.status) });
 
 const rs = (n: number) => `${RESTAURANT.currency} ${n.toLocaleString("en-IN")}`;
 const ago = (t: number) => {
@@ -209,14 +210,13 @@ function WhoAreYou({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const digits = phone.replace(/\D/g, "");
-    if (kind === "customer") {
-      if (name.trim().length < 2) return setErr("Name please. Even 'Hungry Bhai' works.");
-      if (!/^9\d{9}$/.test(digits))
-        return setErr(`Phone numbers here have 10 digits starting with 9. Yours has ${digits.length}. Suspicious.`);
-    }
+    // guests and customers both give a name and number
+    if (name.trim().length < 2) return setErr("Name please. Even 'Hungry Bhai' works.");
+    if (!/^9\d{9}$/.test(digits))
+      return setErr(`Phone numbers here have 10 digits starting with 9. Yours has ${digits.length}. Suspicious.`);
     if (!table) return setErr("Which table? We can't throw parathas randomly. Pick one.");
     if (stateOf(table) === "busy") return setErr(busyMsg(table));
-    const d: Diner = { kind, name: kind === "guest" ? "" : name.trim(), phone: kind === "guest" ? "" : digits, table };
+    const d: Diner = { kind, name: name.trim(), phone: digits, table };
     session.set("lastDiner", d);
     onDone(d);
   };
@@ -233,12 +233,13 @@ function WhoAreYou({
         </button>
         <button role="tab" aria-selected={kind === "guest"} className={kind === "guest" ? "on" : ""} onClick={() => switchKind("guest")} type="button">
           Guest
-          <small>just a table</small>
+          <small>name + number</small>
         </button>
       </div>
 
       <form className="sheet-form" onSubmit={submit} noValidate>
-        {kind === "customer" && (
+        {kind === "guest" && <p className="guest-note">Visiting for the first time? Just your name and number, then pick your table.</p>}
+        {(
           <>
             <label htmlFor="f-name">Your name</label>
             <input id="f-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Sita, or Hungry Bhai" autoComplete="name" />
@@ -247,9 +248,7 @@ function WhoAreYou({
             <p className="fine">Only for your order. No spam. No "good morning" forwards. Promise.</p>
           </>
         )}
-        {kind === "guest" && (
-          <p className="guest-note">No name, no number. Just vibes and parathas. Pick where you're sitting.</p>
-        )}
+
 
         <label>Your table</label>
         <TablePicker
@@ -646,7 +645,7 @@ function AlertBar({ alerts, close, see }: { alerts: Alert[]; close: (k: number) 
     <div className="alerts" aria-live="assertive">
       {alerts.map((a) => (
         <div key={a.key} className={`alert alert-${a.kind}`} role="alert">
-          <b>{a.kind === "cancelled" ? "Order cancelled" : "Your food is ready!"}</b>
+          <b>{a.kind === "cancelled" ? "Order cancelled" : a.kind === "accepted" ? "Order accepted!" : "Table billed. Thank you!"}</b>
           <span>{a.text}</span>
           <div className="alert-act">
             <button type="button" onClick={() => { see(); close(a.key); }}>See my orders</button>
@@ -658,7 +657,7 @@ function AlertBar({ alerts, close, see }: { alerts: Alert[]; close: (k: number) 
   );
 }
 
-type Alert = { key: number; id: string; kind: "cancelled" | "ready"; text: string };
+type Alert = { key: number; id: string; kind: "cancelled" | "accepted" | "billed"; text: string };
 
 function AdminLogin({ back, ok, onSay, store }: { back?: () => void; ok: () => void; onSay: (s: string, m?: Mood) => void; store: Store | null }) {
   const [email, setEmail] = useState("");
@@ -744,7 +743,7 @@ function Admin({
   const seen = useRef<Set<string> | null>(null);
   const [fresh, setFresh] = useState<string[]>([]);
 
-  useEffect(() => store.onOrders(setOrders), [store]);
+  useEffect(() => store.onOrders((list) => setOrders(list.map(normOrder))), [store]);
   useEffect(() => {
     const t = setInterval(() => tick((x) => x + 1), 30000);
     return () => clearInterval(t);
@@ -775,16 +774,22 @@ function Admin({
 
   const shown = orders
     .filter((o) => (filter === "all" ? true : filter === "active" ? isOpen(o.status) : o.status === filter))
-    .sort((a, b) => (filter === "active" || filter === "new" || filter === "cooking" || filter === "ready" ? a.createdAt - b.createdAt : b.createdAt - a.createdAt));
+    .sort((a, b) => (filter === "active" || filter === "new" || filter === "accepted" ? a.createdAt - b.createdAt : b.createdAt - a.createdAt));
 
-  const next = (o: Order) => {
-    const i = STATUS.findIndex((s) => s.id === o.status);
-    if (i >= 0 && i < STATUS.length - 1) {
-      const to = STATUS[i + 1].id;
-      store
-        .setStatus(o.id, to)
-        .then(() => (to === "served" ? releaseIfDone(o.table, o.id) : undefined))
-        .catch(() => setActErr("Couldn't update. Check the internet and try again."));
+  const setTo = (o: Order, to: StatusId) =>
+    store
+      .setStatus(o.id, to)
+      .then(() => (to === "billed" ? releaseIfDone(o.table, o.id) : undefined))
+      .catch(() => setActErr("Couldn't update. Check the internet and try again."));
+  // bill everything accepted at one table, then the table opens for other people
+  const billTable = async (t: number) => {
+    const list = orders.filter((x) => x.table === t && x.status === "accepted");
+    try {
+      for (const x of list) await store.setStatus(x.id, "billed");
+      const stillOpen = orders.some((x) => x.table === t && x.status === "new");
+      if (!stillOpen && locks[String(t)]?.holder) await store.freeTable(t);
+    } catch {
+      setActErr("Couldn't bill the table. Check the internet and try again.");
     }
   };
   // the phone that ordered first keeps the table until its last open order is served or cancelled
@@ -806,7 +811,6 @@ function Admin({
       setActErr("Couldn't cancel. Check the internet and try again.");
     }
   };
-  const nextLabel: Record<string, string> = { new: "Start cooking", cooking: "Mark ready", ready: "Mark served" };
 
   const toggleSold = (id: string) => {
     const n = soldOut.includes(id) ? soldOut.filter((x) => x !== id) : [...soldOut, id];
@@ -823,7 +827,21 @@ function Admin({
         <button className="ghost small" onClick={logout} type="button">Log out</button>
       </header>
       <CounterBar />
-      {unseen.length > 0 && <AlarmOverlay orders={unseen} onSeen={() => ack(unseen.map((o) => o.id))} />}
+      {unseen.length > 0 && (
+        <AlarmOverlay
+          orders={unseen}
+          onSeen={() => {
+            ack(unseen.map((o) => o.id));
+            setTab("orders");
+            setFilter("new");
+            try {
+              window.scrollTo({ top: 0 });
+            } catch {
+              /* ignore */
+            }
+          }}
+        />
+      )}
 
       <div className="stats">
         <div><b>{active.filter((o) => o.status === "new").length}</b><span>new</span></div>
@@ -843,7 +861,7 @@ function Admin({
       {tab === "orders" && (
         <>
           <div className="chips">
-            {([["active", "Active"], ["new", "New"], ["cooking", "Cooking"], ["ready", "Ready"], ["served", "Served"], ["cancelled", "Cancelled"], ["all", "All"]] as const).map(([k, l]) => (
+            {([["active", "Active"], ["new", "New"], ["accepted", "Accepted"], ["billed", "Billed"], ["cancelled", "Cancelled"], ["all", "All"]] as const).map(([k, l]) => (
               <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)} type="button">
                 {l}
                 <small>{k === "all" ? orders.length : k === "active" ? active.length : orders.filter((o) => o.status === k).length}</small>
@@ -865,7 +883,7 @@ function Admin({
                 <div className="ticket-top">
                   <span className="tno">T{o.table}</span>
                   <div className="who-line">
-                    <b>{o.kind === "guest" ? "Guest" : o.name}</b>
+                    <b>{o.name || "Guest"}{o.kind === "guest" && <small className="guest-tag">guest</small>}</b>
                     {o.phone && <span className="mono">{o.phone}</span>}
                     <span className="time">{whenOf(o.createdAt)} · {ago(o.createdAt)}</span>
                   </div>
@@ -920,11 +938,14 @@ function Admin({
                       </>
                     ) : (
                       <>
-                        {isOpen(o.status) && (
+                        {o.status === "new" && (
                           <>
-                            <button className="ghost small" onClick={() => setCancelling({ id: o.id, reason: CANCEL_REASONS[0], other: "" })} type="button" id={`cancel-${o.id}`}>Cancel</button>
-                            <button className="cta small" onClick={() => next(o)} type="button">{nextLabel[o.status]}</button>
+                            <button className="ghost small danger-outline" onClick={() => setCancelling({ id: o.id, reason: CANCEL_REASONS[0], other: "" })} type="button" id={`cancel-${o.id}`}>Cancel</button>
+                            <button className="cta small" onClick={() => setTo(o, "accepted")} type="button" id={`accept-${o.id}`}>Accept</button>
                           </>
+                        )}
+                        {o.status === "accepted" && (
+                          <button className="cta small bill" onClick={() => setTo(o, "billed")} type="button" id={`bill-${o.id}`}>Billed · {rs(o.total)}</button>
                         )}
                       </>
                     )}
@@ -942,7 +963,9 @@ function Admin({
           {Array.from({ length: RESTAURANT.tables }, (_, i) => i + 1).map((t) => {
             const at = active.filter((o) => o.table === t);
             const bill = orders.filter((o) => o.table === t && o.createdAt >= today.getTime() && o.status !== "cancelled").reduce((s, o) => s + o.total, 0);
-            const worst = at.find((o) => o.status === "new") ? "new" : at.find((o) => o.status === "cooking") ? "cooking" : at.length ? "ready" : "free";
+            const worst = at.find((o) => o.status === "new") ? "new" : at.length ? "cooking" : "free";
+            const toBill = at.filter((o) => o.status === "accepted");
+            const toBillSum = toBill.reduce((n, o) => n + o.total, 0);
             const lock = locks[String(t)];
             const held = !!lock?.holder;
             return (
@@ -952,6 +975,11 @@ function Admin({
                   <span className="tbl-s">{worst === "free" ? "Free" : `${at.length} active`}</span>
                   <span className="tbl-b">{bill ? rs(bill) : "—"}</span>
                 </button>
+                {toBill.length > 0 && (
+                  <button type="button" className="tbl-bill" onClick={() => billTable(t)} id={`billtable-${t}`}>
+                    Bill table · {rs(toBillSum)}
+                  </button>
+                )}
                 {held && (
                   <>
                     <span className="tbl-lock">🔒 1 phone · {timeOf(lock.since)}</span>
@@ -974,7 +1002,7 @@ function Admin({
           })}
           <p className="fine span-all">
             Amount = everything that table ordered today. Collect it at the counter. 🔒 means only the phone that ordered first can order for that table.
-            It frees up by itself when you serve or cancel its last order. Use <b>Free table</b> if those guests have left.
+            It frees up by itself when its last order is billed or cancelled. Use <b>Free table</b> if those guests have left.
           </p>
         </div>
       )}
@@ -1013,14 +1041,14 @@ export default function App() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [justSent, setJustSent] = useState(false);
   const [soldOut, setSoldOut] = useState<string[]>([]);
-  const [locks, setLocks] = useState<Record<string, TableLock>>({});
+  const [locks, setLocks] = useState<Record<string, TableLock> | null>(null); // null until first loaded
   const [ident, setIdent] = useState<Ident | null>(null);
   useEffect(() => {
     if (MODE === "admin") return;
     deviceIdentity().then(setIdent).catch(() => setIdent(null));
   }, []);
   const stateOf = (n: number): TableState => {
-    const h = locks[String(n)]?.holder;
+    const h = locks?.[String(n)]?.holder;
     if (!h || !ident) return "free"; // until this phone's key has loaded, don't show anything as taken
     return ident && h === ident.id ? "mine" : "busy";
   };
@@ -1051,7 +1079,7 @@ export default function App() {
   // follow my orders live
   useEffect(() => {
     if (!store) return;
-    const offs = myOrders.map((id) => store.onOrder(id, (o) => setMine((p) => ({ ...p, [id]: o }))));
+    const offs = myOrders.map((id) => store.onOrder(id, (o) => setMine((p) => ({ ...p, [id]: o ? normOrder(o) : o }))));
     return () => offs.forEach((f) => f());
   }, [store, myOrders.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1066,7 +1094,7 @@ export default function App() {
       seen[o.id] = o.status;
       changed = true;
       // only alert on a change this phone saw happen (no alerts for old orders on first load)
-      if (before !== undefined && (o.status === "cancelled" || o.status === "ready")) {
+      if (before !== undefined && (o.status === "cancelled" || o.status === "accepted")) {
         fresh.push({
           key: Date.now() + Math.random(),
           id: o.id,
@@ -1074,7 +1102,7 @@ export default function App() {
           text:
             o.status === "cancelled"
               ? `Your ${timeOf(o.createdAt)} order (Table ${o.table}, ${rs(o.total)}) was cancelled${o.cancelReason ? `: ${o.cancelReason}` : ""}. You won't be charged.`
-              : `Your ${timeOf(o.createdAt)} order is on its way to Table ${o.table}. Make space on the table!`,
+              : `Your ${timeOf(o.createdAt)} order for Table ${o.table} was accepted. It's being made now!`,
         });
       }
     }
@@ -1082,7 +1110,7 @@ export default function App() {
     if (!fresh.length) return;
     setAlerts((a) => [...a, ...fresh]);
     const cancelled = fresh.some((f) => f.kind === "cancelled");
-    speak(cancelled ? "Oh no! An order was cancelled. Check My orders." : "Food is coming! Make space!", cancelled ? "sad" : "love");
+    speak(cancelled ? "Oh no! An order was cancelled. Check My orders." : "Accepted! Your food is being made.", cancelled ? "sad" : "love");
     try {
       navigator.vibrate?.(cancelled ? [300, 120, 300] : [120, 80, 120]);
     } catch {
@@ -1113,6 +1141,28 @@ export default function App() {
       /* phone doesn't allow it */
     }
   }, [mine]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When the owner bills a table (or frees it), the phone seated there is logged out of that table.
+  useEffect(() => {
+    if (MODE === "admin" || !locks || !ident) return;
+    const held = session.get<number[]>("held", []);
+    const stillMine = held.filter((t) => locks[String(t)]?.holder === ident.id);
+    if (stillMine.length === held.length) return;
+    session.set("held", stillMine);
+    if (diner && held.includes(diner.table) && !stillMine.includes(diner.table)) {
+      const t = diner.table;
+      session.clear("diner");
+      session.clear("cart");
+      setDiner(null);
+      setExitAsk(false);
+      setScreen("home");
+      setAlerts((a) => [
+        ...a,
+        { key: Date.now(), id: `billed-${t}`, kind: "billed", text: `Table ${t} has been billed and you're logged out of it. Thanks for eating at ${RESTAURANT.name}! Your orders stay in My orders.` },
+      ]);
+      speak(`Bye bye Table ${t}! Come back hungry.`, "love");
+    }
+  }, [locks, ident]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the menu: built-in from data.ts until the admin edits it, then the saved one
   const [menuDocs, setMenuDocs] = useState<Item[]>([]);
@@ -1230,7 +1280,7 @@ export default function App() {
         </button>
         {diner && (screen === "menu" || screen === "status" || screen === "home") && (
           <div className="who-chip">
-            <span>T{diner.table} · {diner.kind === "guest" ? "Guest" : diner.name.split(" ")[0]}</span>
+            <span>T{diner.table} · {(diner.name || "Guest").split(" ")[0]}</span>
             {exitAsk ? (
               <button onClick={leave} className="danger" type="button">Sure? Leave</button>
             ) : (
@@ -1274,7 +1324,7 @@ export default function App() {
             setDiner(d);
             session.set("diner", d);
             setScreen("menu");
-            speak(d.kind === "guest" ? `Welcome, mystery guest of Table ${d.table}!` : `Namaste ${d.name.split(" ")[0]}! Table ${d.table} is ready to eat.`, "love");
+            speak(`Namaste ${(d.name || "friend").split(" ")[0]}! Table ${d.table} is ready to eat.`, "love");
           }}
         />
       )}
@@ -1294,6 +1344,7 @@ export default function App() {
             const n = [...myOrders, id].slice(-40);
             setMyOrders(n);
             session.set("history", n);
+            if (diner) session.set("held", Array.from(new Set([...session.get<number[]>("held", []), diner.table])));
             setJustSent(true);
             setScreen("status");
             try {
@@ -1324,7 +1375,7 @@ export default function App() {
         <AdminLogin store={store} back={MODE === "admin" ? undefined : () => go("home")} ok={() => setScreen("admin")} onSay={speak} />
       )}
       {screen === "admin" && MODE !== "customer" && store && (!store.adminAuth || adminOk) && (
-        <Admin store={store} soldOut={soldOut} locks={locks} items={items} cats={cats} onSave={saveFood} onDelete={deleteFood} logout={() => { store.adminAuth?.signOut().catch(() => {}); session.clear("admin"); if (MODE === "admin") setScreen("adminLogin"); else go("home"); }} />
+        <Admin store={store} soldOut={soldOut} locks={locks || {}} items={items} cats={cats} onSave={saveFood} onDelete={deleteFood} logout={() => { store.adminAuth?.signOut().catch(() => {}); session.clear("admin"); if (MODE === "admin") setScreen("adminLogin"); else go("home"); }} />
       )}
 
       {showMini && (

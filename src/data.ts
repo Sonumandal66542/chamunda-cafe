@@ -96,8 +96,8 @@ export const LINES = {
     "You picked a special. You have taste, boss.",
   ],
   guest: [
-    "Mystery guest! Very James Bond. Pick your table.",
-    "No name? No problem. Hunger has no name.",
+    "Welcome, guest! Name, number, table. Then parathas.",
+    "First time here? Mummy-approved choice.",
   ],
   customer: [
     "Name, number, table. Then pure paratha peace.",
@@ -117,13 +117,16 @@ export const LINES = {
 };
 
 export const STATUS = [
-  { id: "new", label: "Order received", short: "New", line: "Your order reached the kitchen. Chef cracked his knuckles." },
-  { id: "cooking", label: "On the tawa", short: "Cooking", line: "Sizzle sizzle. Your paratha is getting a tan." },
-  { id: "ready", label: "Coming to your table", short: "Ready", line: "Hot plate incoming! Make space, move the phone." },
-  { id: "served", label: "Served. Eat!", short: "Served", line: "Eat now, talk later. Rate us 5 stars in your heart." },
+  { id: "new", label: "Order sent", short: "New", line: "Your order reached the kitchen. Waiting for the boss to say yes." },
+  { id: "accepted", label: "Accepted · being made", short: "Accepted", line: "Accepted! Chef cracked his knuckles. Sizzle sizzle." },
+  { id: "billed", label: "Billed. Thank you!", short: "Billed", line: "All billed. Thank you! Come back hungry." },
 ] as const;
 
 export type StatusId = typeof STATUS[number]["id"] | "cancelled";
+
+// Orders saved before the Accept/Bill flow used more steps; read them in today's terms.
+export const normStatus = (s: string): StatusId =>
+  s === "cooking" || s === "ready" ? "accepted" : s === "served" ? "billed" : (s as StatusId);
 
 // quick reasons the owner can tap when cancelling; the customer sees the one chosen
 export const CANCEL_REASONS = ["Item sold out", "Kitchen is closing", "Customer asked to cancel", "Duplicate or wrong table"];

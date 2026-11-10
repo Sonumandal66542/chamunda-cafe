@@ -241,7 +241,7 @@ export function AlarmOverlay({ orders, onSeen }: { orders: Order[]; onSeen: () =
           {orders.slice(0, 6).map((o) => (
             <li key={o.id}>
               <b>Table {o.table}</b>
-              <span>{o.kind === "guest" ? "Guest" : o.name}</span>
+              <span>{o.name || "Guest"}{o.kind === "guest" ? " (guest)" : ""}{o.phone ? ` · ${o.phone}` : ""}</span>
               <span className="alarm-items">{o.items.map((l) => `${l.qty}× ${l.name}`).join(", ")}</span>
               {o.note && <span className="alarm-note">Note: {o.note}</span>}
             </li>
