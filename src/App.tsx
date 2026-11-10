@@ -143,7 +143,7 @@ function Home({
         <button className="door door-eat" onClick={eat} id="btn-customer">
           <span className="door-kicker">Customer</span>
           <span className="door-title">I'm Hungry</span>
-          <span className="door-sub">{seatedAt ? `Back to the menu for Table ${seatedAt}.` : qrTable() ? `You're at Table ${qrTable()}. Tap here and start ordering.` : "Guest or regular. Pick a table, start ordering."}</span>
+          <span className="door-sub">{seatedAt ? `Back to the menu for Table ${seatedAt}.` : qrTable() ? `You're at Table ${qrTable()}. Tap here and start ordering.` : "Name, number, table. Then start ordering."}</span>
         </button>
         {MODE !== "customer" && (
           <button className="door door-boss" onClick={boss} id="btn-admin">
@@ -195,17 +195,11 @@ function WhoAreYou({
   onDone: (d: Diner) => void; back: () => void; setSay: (s: string, m?: Mood) => void; stateOf: (n: number) => TableState;
 }) {
   const saved = session.get<Diner | null>("lastDiner", null);
-  const [kind, setKind] = useState<"guest" | "customer">(saved?.kind || "customer");
   const [name, setName] = useState(saved?.name || "");
   const [phone, setPhone] = useState(saved?.phone || "");
   const [table, setTable] = useState(qrTable());
   const [err, setErr] = useState("");
 
-  const switchKind = (k: "guest" | "customer") => {
-    setKind(k);
-    setErr("");
-    setSay(pick(k === "guest" ? LINES.guest : LINES.customer), k === "guest" ? "wink" : "happy");
-  };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,7 +210,7 @@ function WhoAreYou({
       return setErr(`Phone numbers here have 10 digits starting with 9. Yours has ${digits.length}. Suspicious.`);
     if (!table) return setErr("Which table? We can't throw parathas randomly. Pick one.");
     if (stateOf(table) === "busy") return setErr(busyMsg(table));
-    const d: Diner = { kind, name: name.trim(), phone: digits, table };
+    const d: Diner = { kind: "customer", name: name.trim(), phone: digits, table };
     session.set("lastDiner", d);
     onDone(d);
   };
@@ -226,19 +220,8 @@ function WhoAreYou({
       <button className="back" onClick={back} type="button">← Back</button>
       <h2 className="screen-title">Who's eating?</h2>
 
-      <div className="seg" role="tablist">
-        <button role="tab" aria-selected={kind === "customer"} className={kind === "customer" ? "on" : ""} onClick={() => switchKind("customer")} type="button">
-          Customer
-          <small>name + number</small>
-        </button>
-        <button role="tab" aria-selected={kind === "guest"} className={kind === "guest" ? "on" : ""} onClick={() => switchKind("guest")} type="button">
-          Guest
-          <small>name + number</small>
-        </button>
-      </div>
-
       <form className="sheet-form" onSubmit={submit} noValidate>
-        {kind === "guest" && <p className="guest-note">Visiting for the first time? Just your name and number, then pick your table.</p>}
+        <p className="guest-note">Your name, your number, your table. Then parathas.</p>
         {(
           <>
             <label htmlFor="f-name">Your name</label>
@@ -1135,7 +1118,7 @@ export default function App() {
     }
     try {
       if ("Notification" in window && Notification.permission === "granted" && document.visibilityState !== "visible") {
-        for (const f of fresh) new Notification(f.kind === "cancelled" ? `${RESTAURANT.name}: order cancelled` : `${RESTAURANT.name}: food is ready`, { body: f.text, tag: f.id });
+        for (const f of fresh) new Notification(f.kind === "cancelled" ? `${RESTAURANT.name}: order cancelled` : `${RESTAURANT.name}: order accepted`, { body: f.text, tag: f.id });
       }
     } catch {
       /* phone doesn't allow it */
