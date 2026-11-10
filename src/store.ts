@@ -79,7 +79,12 @@ function liveStore(db: any): Store {
     async addOrder(o) {
       const ref = orders.doc();
       await ref.set(o);
-      if (o.device) await db.doc(`tables/${o.table}`).set({ holder: o.device, since: Date.now(), lastOrder: ref.id });
+      if (o.device) {
+        const since = Date.now();
+        await db.doc(`tables/${o.table}`).set({ holder: o.device, since, lastOrder: ref.id });
+        await db.doc(`devices/${o.device}`).set({ table: o.table, since, lastOrder: ref.id });
+        await db.doc(`phones/${o.phone}`).set({ table: o.table, device: o.device, since, lastOrder: ref.id });
+      }
       return ref.id;
     },
     onTables(cb) {
@@ -209,10 +214,22 @@ function localStore(): Store {
       return () => oSubs.delete(f);
     },
     async addOrder(o) {
+      const denied = () => Object.assign(new Error("not allowed"), { code: "permission-denied" });
       const cur = locks[String(o.table)];
-      if (o.device && cur && cur.holder && cur.holder !== o.device) throw Object.assign(new Error("table busy"), { code: "permission-denied" });
+      if (o.device && cur && cur.holder && cur.holder !== o.device) throw denied();
+      // same checks as the live database: one open table per phone and per mobile number
+      const seats = safeGet<{ devices: Record<string, number>; phones: Record<string, { table: number; device: string }> }>("pp-seats", { devices: {}, phones: {} });
+      const dev = o.device ? seats.devices[o.device] : undefined;
+      if (o.device && dev && dev !== o.table && locks[String(dev)]?.holder === o.device) throw denied();
+      const ph = seats.phones[o.phone];
+      if (o.device && ph && ph.table !== o.table && locks[String(ph.table)]?.holder === ph.device) throw denied();
       const id = Math.random().toString(36).slice(2, 10);
       orders = [...orders, { ...o, id }];
+      if (o.device) {
+        seats.devices[o.device] = o.table;
+        seats.phones[o.phone] = { table: o.table, device: o.device };
+        safeSet("pp-seats", seats);
+      }
       if (o.device) locks = { ...locks, [String(o.table)]: { holder: o.device, since: Date.now(), lastOrder: id } };
       emitO();
       emitT();

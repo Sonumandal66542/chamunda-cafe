@@ -9,6 +9,10 @@ import { deviceIdentity, type Ident } from "./device";
 import { CounterBar, AlarmOverlay, useUnseen, useAlarm } from "./CounterMode";
 
 type TableState = "free" | "mine" | "busy";
+const oneTableMsg = (held: number) =>
+  `You already have an open order at Table ${held}. You can order for another table once Table ${held} is billed. Want more food? Add it to Table ${held}.`;
+const numberMsg =
+  "This mobile number already has an open order at another table. You can order for a new table once that one is billed, or ask the staff.";
 const busyMsg = (n: number) =>
   `Table ${n} already has an order going from another phone. Ask that person to add your food from their phone, or ask the staff. The table frees up once their food is served.`;
 
@@ -190,14 +194,14 @@ function TablePicker({ value, onPick, stateOf }: { value: number; onPick: (n: nu
 }
 
 function WhoAreYou({
-  onDone, back, setSay, stateOf,
+  onDone, back, setSay, stateOf, myTable,
 }: {
-  onDone: (d: Diner) => void; back: () => void; setSay: (s: string, m?: Mood) => void; stateOf: (n: number) => TableState;
+  onDone: (d: Diner) => void; back: () => void; setSay: (s: string, m?: Mood) => void; stateOf: (n: number) => TableState; myTable: number;
 }) {
   const saved = session.get<Diner | null>("lastDiner", null);
   const [name, setName] = useState(saved?.name || "");
   const [phone, setPhone] = useState(saved?.phone || "");
-  const [table, setTable] = useState(qrTable());
+  const [table, setTable] = useState(myTable || qrTable());
   const [err, setErr] = useState("");
 
 
@@ -210,6 +214,7 @@ function WhoAreYou({
       return setErr(`Phone numbers here have 10 digits starting with 9. Yours has ${digits.length}. Suspicious.`);
     if (!table) return setErr("Which table? We can't throw parathas randomly. Pick one.");
     if (stateOf(table) === "busy") return setErr(busyMsg(table));
+    if (myTable && table !== myTable) return setErr(oneTableMsg(myTable));
     const d: Diner = { kind: "customer", name: name.trim(), phone: digits, table };
     session.set("lastDiner", d);
     onDone(d);
@@ -238,6 +243,11 @@ function WhoAreYou({
           value={table}
           stateOf={stateOf}
           onPick={(n) => {
+            if (myTable && n !== myTable && stateOf(n) !== "busy") {
+              setErr(oneTableMsg(myTable));
+              setSay(`One table at a time, boss! You're at Table ${myTable}.`, "wink");
+              return;
+            }
             if (stateOf(n) === "busy") {
               setErr(busyMsg(n));
               setSay(`Table ${n} is taken by another phone. Ask them to add your food!`, "shock");
@@ -249,6 +259,7 @@ function WhoAreYou({
           }}
         />
         {table > 0 && stateOf(table) === "busy" && !err && <p className="err" role="alert">{busyMsg(table)}</p>}
+        {myTable > 0 && <p className="fine">You have an open order at Table {myTable}, so that's your table until it's billed.</p>}
 
         {err && <p className="err" role="alert">{err}</p>}
         <button className="cta" type="submit" id="btn-start">Show me the menu →</button>
@@ -258,10 +269,11 @@ function WhoAreYou({
 }
 
 function MenuScreen({
-  diner, store, soldOut, onOrdered, onSay, addFx, items, cats, ident, tableBusy, changeTable,
+  diner, store, soldOut, onOrdered, onSay, addFx, items, cats, ident, tableBusy, myTable, changeTable,
 }: {
   ident: Ident | null;
   tableBusy: boolean;
+  myTable: number;
   changeTable: () => void;
   diner: Diner;
   store: Store;
@@ -331,6 +343,7 @@ function MenuScreen({
   const send = async () => {
     if (!lines.length) return;
     if (tableBusy) return setSendErr(busyMsg(diner.table));
+    if (myTable && myTable !== diner.table) return setSendErr(oneTableMsg(myTable));
     if (!ident) return setSendErr("This browser can't place orders. Open the link in Chrome or Safari and try again.");
     // ask now (while the tap counts) so we can alert them if the cafe cancels or the food is ready
     try {
@@ -363,9 +376,13 @@ function MenuScreen({
     } catch (er) {
       const code = String((er as { code?: string })?.code || "");
       setSendErr(
-        code.includes("permission")
-          ? busyMsg(diner.table)
-          : "The order didn't reach the kitchen. Check your internet and tap Send again, or wave at the staff."
+        !code.includes("permission")
+          ? "The order didn't reach the kitchen. Check your internet and tap Send again, or wave at the staff."
+          : tableBusy
+            ? busyMsg(diner.table)
+            : myTable && myTable !== diner.table
+              ? oneTableMsg(myTable)
+              : numberMsg
       );
     } finally {
       setSending(false);
@@ -1030,6 +1047,12 @@ export default function App() {
     if (MODE === "admin") return;
     deviceIdentity().then(setIdent).catch(() => setIdent(null));
   }, []);
+  // the one table this phone currently holds (0 = none)
+  const myTable = (() => {
+    if (!locks || !ident) return 0;
+    const mine = Object.entries(locks).filter(([, l]) => l.holder === ident.id).map(([t]) => Number(t));
+    return mine.length ? (diner && mine.includes(diner.table) ? diner.table : mine[0]) : 0;
+  })();
   const stateOf = (n: number): TableState => {
     const h = locks?.[String(n)]?.holder;
     if (!h || !ident) return "free"; // until this phone's key has loaded, don't show anything as taken
@@ -1301,6 +1324,7 @@ export default function App() {
       {screen === "who" && (
         <WhoAreYou
           stateOf={stateOf}
+          myTable={myTable}
           back={() => go("home")}
           setSay={speak}
           onDone={(d) => {
@@ -1315,6 +1339,7 @@ export default function App() {
         <MenuScreen
           ident={ident}
           tableBusy={!!diner && stateOf(diner.table) === "busy"}
+          myTable={myTable}
           changeTable={() => go("who")}
           items={items}
           cats={cats}

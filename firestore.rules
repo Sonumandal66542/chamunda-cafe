@@ -2,7 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Sign-ups are switched off in Firebase, so the only login is the cafe owner's.
+
     function isOwner() {
       return request.auth != null;
     }
@@ -19,7 +19,7 @@ service cloud.firestore {
         && d.table is int && d.table >= 1 && d.table <= 8
         && d.kind in ['guest', 'customer']
         && d.name is string && d.name.size() <= 60
-        && d.phone is string && d.phone.size() <= 15
+        && d.phone is string && d.phone.matches('^9[0-9]{9}$')
         && d.note is string && d.note.size() <= 200
         && d.items is list && d.items.size() > 0 && d.items.size() <= 30
         && d.total is number && d.total > 0 && d.total <= 100000
@@ -28,7 +28,34 @@ service cloud.firestore {
         && d.createdAt < request.time.toMillis() + 86400000
         && d.key is string && d.key.size() >= 20 && d.key.size() <= 64
         && d.device is string && d.device == hashing.sha256(d.key).toHexString()
-        && getAfter(tableDoc(string(d.table))).data.holder == d.device;
+        && getAfter(tableDoc(string(d.table))).data.holder == d.device
+        && getAfter(/databases/$(database)/documents/devices/$(d.device)).data.table == d.table
+        && getAfter(/databases/$(database)/documents/phones/$(d.phone)).data.table == d.table;
+    }
+
+    // An earlier table is "finished" once nobody (or someone else) holds it any more.
+    function tableFinished(t, who) {
+      return !exists(tableDoc(string(t))) || get(tableDoc(string(t))).data.holder != who;
+    }
+
+    // One open table per phone.
+    function validDeviceSeat(dev) {
+      let nd = request.resource.data;
+      let o = getAfter(/databases/$(database)/documents/orders/$(nd.lastOrder)).data;
+      return nd.keys().hasOnly(['table', 'since', 'lastOrder'])
+        && nd.table is int && nd.since is number && nd.lastOrder is string
+        && o.device == dev && o.table == nd.table
+        && (resource == null || resource.data.table == nd.table || tableFinished(resource.data.table, dev));
+    }
+
+    // One open table per mobile number.
+    function validPhoneSeat(ph) {
+      let nd = request.resource.data;
+      let o = getAfter(/databases/$(database)/documents/orders/$(nd.lastOrder)).data;
+      return nd.keys().hasOnly(['table', 'device', 'since', 'lastOrder'])
+        && nd.table is int && nd.device is string && nd.since is number && nd.lastOrder is string
+        && o.phone == ph && o.device == nd.device && o.table == nd.table
+        && (resource == null || resource.data.table == nd.table || tableFinished(resource.data.table, resource.data.device));
     }
 
     // A phone can take a table only if it's free (or already theirs), and only together with an order for it.
@@ -54,6 +81,16 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isOwner();
       allow create, update: if validClaim(t);
+    }
+
+    match /devices/{dev} {
+      allow write: if isOwner();
+      allow create, update: if validDeviceSeat(dev);
+    }
+
+    match /phones/{ph} {
+      allow write: if isOwner();
+      allow create, update: if validPhoneSeat(ph);
     }
 
     match /menu/{itemId} {

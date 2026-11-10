@@ -34,7 +34,13 @@ export function firebaseStore(config: Record<string, string>): Store {
       const ref = doc(orders);
       const batch = writeBatch(db);
       batch.set(ref, o);
-      if (o.device) batch.set(doc(db, "tables", String(o.table)), { holder: o.device, since: Date.now(), lastOrder: ref.id });
+      if (o.device) {
+        const since = Date.now();
+        batch.set(doc(db, "tables", String(o.table)), { holder: o.device, since, lastOrder: ref.id });
+        // one table at a time: for this phone, and for this mobile number
+        batch.set(doc(db, "devices", o.device), { table: o.table, since, lastOrder: ref.id });
+        batch.set(doc(db, "phones", o.phone), { table: o.table, device: o.device, since, lastOrder: ref.id });
+      }
       await batch.commit();
       return ref.id;
     },
